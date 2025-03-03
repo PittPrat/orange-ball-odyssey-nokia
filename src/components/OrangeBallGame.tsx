@@ -1,9 +1,16 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from '@/components/ui/use-toast';
 import GameControls from './game/GameControls';
 import HighScoreDisplay from './game/HighScoreDisplay';
-import { GameState, Ball, Obstacle, difficultySettings, createBallGradient } from './game/GameUtils';
+import { 
+  GameState, 
+  Ball, 
+  Obstacle, 
+  PowerUp, 
+  difficultySettings, 
+  createBallGradient, 
+  drawPowerUp 
+} from './game/GameUtils';
 
 const OrangeBallGame: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -23,17 +30,23 @@ const OrangeBallGame: React.FC = () => {
       x: 80,
       y: 0,
       radius: 15,
+      normalRadius: 15,
       velocityY: 0,
+      velocityX: 0,
       gravity: difficultySettings.medium.gravity,
       jumpForce: difficultySettings.medium.jumpForce,
       onGround: true,
       color: '#FF7700'
     },
     obstacles: [],
+    powerUps: [],
     score: 0,
     gameSpeed: difficultySettings.medium.gameSpeed,
     lastObstacleTime: 0,
+    lastPowerUpTime: 0,
     jumpPressed: false,
+    leftPressed: false,
+    rightPressed: false,
     animationId: 0,
     canvas: null,
     ctx: null,
@@ -58,6 +71,7 @@ const OrangeBallGame: React.FC = () => {
     // Create ball
     gameStateRef.current.ball.y = canvas.height - 30;
     gameStateRef.current.ball.radius = ballSize;
+    gameStateRef.current.ball.normalRadius = ballSize;
     gameStateRef.current.canvas = canvas;
     gameStateRef.current.ctx = ctx;
     
@@ -103,6 +117,21 @@ const OrangeBallGame: React.FC = () => {
     }
   };
 
+  // Move left function
+  const moveLeft = () => {
+    gameStateRef.current.ball.velocityX = -2;
+  };
+
+  // Move right function
+  const moveRight = () => {
+    gameStateRef.current.ball.velocityX = 2;
+  };
+
+  // Stop horizontal movement
+  const stopHorizontalMovement = () => {
+    gameStateRef.current.ball.velocityX = 0;
+  };
+
   // Game loop
   const gameLoop = () => {
     const gameState = gameStateRef.current;
@@ -123,11 +152,23 @@ const OrangeBallGame: React.FC = () => {
       gameState.gameSpeed += 0.1;
     }
     
+    // Apply horizontal movement from controls
+    if (gameState.leftPressed) {
+      moveLeft();
+    } else if (gameState.rightPressed) {
+      moveRight();
+    } else {
+      stopHorizontalMovement();
+    }
+    
     // Update ball physics
     updateBall();
     
     // Spawn obstacles
     updateObstacles();
+    
+    // Spawn power-ups
+    updatePowerUps();
     
     // Check for collisions
     checkCollisions();
@@ -148,6 +189,7 @@ const OrangeBallGame: React.FC = () => {
     
     // Update position
     ball.y += ball.velocityY;
+    ball.x += ball.velocityX;
     
     // Check for ground collision
     if (ball.y + ball.radius > canvas.height) {
@@ -156,6 +198,15 @@ const OrangeBallGame: React.FC = () => {
       ball.onGround = true;
     } else {
       ball.onGround = false;
+    }
+    
+    // Check for horizontal boundaries
+    if (ball.x - ball.radius < 0) {
+      ball.x = ball.radius;
+      ball.velocityX = 0;
+    } else if (ball.x + ball.radius > canvas.width) {
+      ball.x = canvas.width - ball.radius;
+      ball.velocityX = 0;
     }
   };
 
@@ -213,10 +264,59 @@ const OrangeBallGame: React.FC = () => {
     }
   };
 
+  // Update power-ups
+  const updatePowerUps = () => {
+    const gameState = gameStateRef.current;
+    const currentTime = Date.now();
+    const difficultyConfig = difficultySettings[gameState.difficulty];
+    
+    if (!gameState.canvas) return;
+    
+    // Add new power-up
+    const timeDiff = currentTime - gameState.lastPowerUpTime;
+    const spawnInterval = difficultyConfig.powerUpFrequency;
+    
+    if (timeDiff > spawnInterval) {
+      // Random power-up type (grow or shrink)
+      const powerUpType = Math.random() > 0.5 ? 'grow' : 'shrink';
+      
+      const width = 20;
+      const height = 25;
+      
+      // Place power-up between 1/3 and 2/3 of screen height
+      const minY = gameState.canvas.height * 0.3;
+      const maxY = gameState.canvas.height * 0.7;
+      const y = minY + Math.random() * (maxY - minY);
+      
+      gameState.powerUps.push({
+        x: gameState.canvas.width,
+        y: y,
+        width: width,
+        height: height,
+        type: powerUpType,
+        active: true
+      });
+      
+      gameState.lastPowerUpTime = currentTime;
+    }
+    
+    // Move power-ups
+    for (let i = 0; i < gameState.powerUps.length; i++) {
+      gameState.powerUps[i].x -= gameState.gameSpeed;
+      
+      // Remove power-ups that have gone off screen
+      if (gameState.powerUps[i].x + gameState.powerUps[i].width < 0) {
+        gameState.powerUps.splice(i, 1);
+        i--;
+      }
+    }
+  };
+
   // Check for collisions
   const checkCollisions = () => {
-    const { ball, obstacles } = gameStateRef.current;
+    const { ball, obstacles, powerUps } = gameStateRef.current;
     
+    // Check obstacle collisions
     for (let obstacle of obstacles) {
       // Simple rectangle-circle collision
       if (
@@ -229,11 +329,57 @@ const OrangeBallGame: React.FC = () => {
         break;
       }
     }
+    
+    // Check power-up collisions
+    for (let i = 0; i < powerUps.length; i++) {
+      const powerUp = powerUps[i];
+      
+      if (powerUp.active &&
+          ball.x + ball.radius > powerUp.x &&
+          ball.x - ball.radius < powerUp.x + powerUp.width &&
+          ball.y + ball.radius > powerUp.y &&
+          ball.y - ball.radius < powerUp.y + powerUp.height
+      ) {
+        // Apply power-up effect
+        if (powerUp.type === 'grow') {
+          // Increase ball size
+          ball.radius = Math.min(ball.normalRadius * 1.5, 25);
+          toast({
+            title: "Power-up!",
+            description: "Ball size increased",
+            variant: "default",
+          });
+        } else if (powerUp.type === 'shrink') {
+          // Decrease ball size
+          ball.radius = Math.max(ball.normalRadius * 0.7, 10);
+          toast({
+            title: "Power-up!",
+            description: "Ball size decreased",
+            variant: "default",
+          });
+        }
+        
+        // Deactivate the power-up
+        powerUps.splice(i, 1);
+        i--;
+        
+        // Reset ball size after a few seconds
+        setTimeout(() => {
+          if (!gameStateRef.current.gameOver) {
+            ball.radius = ball.normalRadius;
+            toast({
+              title: "Power-up expired",
+              description: "Ball size returned to normal",
+            });
+          }
+        }, 8000);
+      }
+    }
   };
 
   // Render game objects
   const render = () => {
-    const { ctx, canvas, ball, obstacles } = gameStateRef.current;
+    const { ctx, canvas, ball, obstacles, powerUps } = gameStateRef.current;
     
     if (!ctx || !canvas) return;
     
@@ -272,19 +418,10 @@ const OrangeBallGame: React.FC = () => {
       ctx.fill();
     });
     
-    // Draw ball
-    ctx.beginPath();
-    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-    ctx.fillStyle = ball.color;
-    ctx.fill();
-    
-    // Add shading to ball to make it look 3D
-    const gradient = createBallGradient(ctx, ball.x, ball.y, ball.radius, ball.color);
-    
-    ctx.beginPath();
-    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-    ctx.fillStyle = gradient;
-    ctx.fill();
+    // Draw power-ups
+    for (let powerUp of powerUps) {
+      drawPowerUp(ctx, powerUp);
+    }
     
     // Draw obstacles
     for (let obstacle of obstacles) {
@@ -369,6 +506,20 @@ const OrangeBallGame: React.FC = () => {
         ctx.fill();
       }
     }
+    
+    // Draw ball
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+    ctx.fillStyle = ball.color;
+    ctx.fill();
+    
+    // Add shading to ball to make it look 3D
+    const gradient = createBallGradient(ctx, ball.x, ball.y, ball.radius, ball.color);
+    
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+    ctx.fillStyle = gradient;
+    ctx.fill();
   };
 
   // End the game
@@ -446,6 +597,7 @@ const OrangeBallGame: React.FC = () => {
     
     // Reset variables
     gameState.obstacles = [];
+    gameState.powerUps = [];
     gameState.score = 0;
     
     // Apply current difficulty and ball size settings
@@ -456,13 +608,17 @@ const OrangeBallGame: React.FC = () => {
     gameState.difficulty = difficulty;
     gameState.gameOver = false;
     gameState.lastObstacleTime = 0;
+    gameState.lastPowerUpTime = 0;
     gameState.ball.radius = ballSize;
+    gameState.ball.normalRadius = ballSize;
     
     if (gameState.canvas) {
       // Reset ball position
+      gameState.ball.x = 80;
       gameState.ball.y = gameState.canvas.height - 30;
     }
     gameState.ball.velocityY = 0;
+    gameState.ball.velocityX = 0;
     gameState.ball.onGround = true;
     
     setGameOver(false);
@@ -500,11 +656,27 @@ const OrangeBallGame: React.FC = () => {
         jump();
         gameStateRef.current.jumpPressed = true;
       }
+      
+      if (e.key === 'ArrowLeft') {
+        gameStateRef.current.leftPressed = true;
+      }
+      
+      if (e.key === 'ArrowRight') {
+        gameStateRef.current.rightPressed = true;
+      }
     };
     
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space' || e.key === ' ' || e.key === 'ArrowUp') {
         gameStateRef.current.jumpPressed = false;
+      }
+      
+      if (e.key === 'ArrowLeft') {
+        gameStateRef.current.leftPressed = false;
+      }
+      
+      if (e.key === 'ArrowRight') {
+        gameStateRef.current.rightPressed = false;
       }
     };
     
@@ -556,7 +728,7 @@ const OrangeBallGame: React.FC = () => {
           <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-[#FF7700] to-[#FF9933] bg-clip-text text-transparent">
             Orange Ball Odyssey
           </h1>
-          <p className="text-gray-600">Jump over obstacles and set a high score!</p>
+          <p className="text-gray-600">Collect power-ups, jump and move to avoid obstacles!</p>
         </div>
         
         <div className="flex flex-col md:flex-row gap-4">
@@ -589,7 +761,7 @@ const OrangeBallGame: React.FC = () => {
             )}
             
             <div className="absolute bottom-2 left-5 text-gray-600 text-sm bg-white/80 px-3 py-1 rounded-full">
-              Press SPACE to jump or tap the screen
+              ↑/SPACE to jump, ←/→ to move
             </div>
           </div>
           
