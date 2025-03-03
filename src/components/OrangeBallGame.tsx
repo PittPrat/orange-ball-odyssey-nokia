@@ -1,5 +1,9 @@
 
 import React, { useEffect, useRef, useState } from 'react';
+import { toast } from '@/components/ui/use-toast';
+import GameControls from './game/GameControls';
+import HighScoreDisplay from './game/HighScoreDisplay';
+import { GameState, Ball, Obstacle, difficultySettings, createBallGradient } from './game/GameUtils';
 
 const OrangeBallGame: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -10,34 +14,31 @@ const OrangeBallGame: React.FC = () => {
   const [highScores, setHighScores] = useState<{name: string, score: number}[]>([]);
   const [isNewHighScore, setIsNewHighScore] = useState(false);
   const [playerName, setPlayerName] = useState('');
+  const [ballSize, setBallSize] = useState(15);
+  const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   
   // Game variables stored in refs to persist across renders
-  const gameStateRef = useRef({
+  const gameStateRef = useRef<GameState>({
     ball: {
       x: 80,
       y: 0,
       radius: 15,
       velocityY: 0,
-      gravity: 0.6,
-      jumpForce: -12,
+      gravity: difficultySettings.medium.gravity,
+      jumpForce: difficultySettings.medium.jumpForce,
       onGround: true,
       color: '#FF7700'
     },
-    obstacles: [] as {
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-      type: string;
-    }[],
+    obstacles: [],
     score: 0,
-    gameSpeed: 5,
+    gameSpeed: difficultySettings.medium.gameSpeed,
     lastObstacleTime: 0,
     jumpPressed: false,
     animationId: 0,
-    canvas: null as HTMLCanvasElement | null,
-    ctx: null as CanvasRenderingContext2D | null,
-    gameOver: false
+    canvas: null,
+    ctx: null,
+    gameOver: false,
+    difficulty: 'medium'
   });
 
   // Initialize the game
@@ -56,8 +57,16 @@ const OrangeBallGame: React.FC = () => {
     
     // Create ball
     gameStateRef.current.ball.y = canvas.height - 30;
+    gameStateRef.current.ball.radius = ballSize;
     gameStateRef.current.canvas = canvas;
     gameStateRef.current.ctx = ctx;
+    
+    // Apply difficulty settings
+    const difficultyConfig = difficultySettings[difficulty];
+    gameStateRef.current.ball.gravity = difficultyConfig.gravity;
+    gameStateRef.current.ball.jumpForce = difficultyConfig.jumpForce;
+    gameStateRef.current.gameSpeed = difficultyConfig.gameSpeed;
+    gameStateRef.current.difficulty = difficulty;
     
     // Load high scores
     try {
@@ -154,12 +163,13 @@ const OrangeBallGame: React.FC = () => {
   const updateObstacles = () => {
     const gameState = gameStateRef.current;
     const currentTime = Date.now();
+    const difficultyConfig = difficultySettings[gameState.difficulty];
     
     if (!gameState.canvas) return;
     
     // Add new obstacle
     const timeDiff = currentTime - gameState.lastObstacleTime;
-    const spawnInterval = Math.max(300, 1500 - gameState.gameSpeed * 60);
+    const spawnInterval = Math.max(300, difficultyConfig.obstacleFrequency - gameState.gameSpeed * 60);
     
     if (timeDiff > spawnInterval) {
       // Random obstacle type (cactus or bird)
@@ -230,12 +240,37 @@ const OrangeBallGame: React.FC = () => {
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Draw ground line
-    ctx.beginPath();
-    ctx.moveTo(0, canvas.height);
-    ctx.lineTo(canvas.width, canvas.height);
-    ctx.strokeStyle = '#aaa';
-    ctx.stroke();
+    // Draw sky gradient background
+    const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    skyGradient.addColorStop(0, '#87CEEB');
+    skyGradient.addColorStop(1, '#E0F7FF');
+    ctx.fillStyle = skyGradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw ground with grass texture
+    const groundHeight = 20;
+    ctx.fillStyle = '#8B4513';
+    ctx.fillRect(0, canvas.height - groundHeight, canvas.width, groundHeight);
+    
+    // Draw grass
+    ctx.fillStyle = '#3D9970';
+    ctx.fillRect(0, canvas.height - groundHeight, canvas.width, 5);
+    
+    // Draw some clouds
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    const cloudPositions = [
+      { x: canvas.width * 0.1, y: canvas.height * 0.2, size: 40 },
+      { x: canvas.width * 0.5, y: canvas.height * 0.1, size: 30 },
+      { x: canvas.width * 0.8, y: canvas.height * 0.25, size: 35 }
+    ];
+    
+    cloudPositions.forEach(cloud => {
+      ctx.beginPath();
+      ctx.arc(cloud.x, cloud.y, cloud.size, 0, Math.PI * 2);
+      ctx.arc(cloud.x + cloud.size * 0.5, cloud.y - cloud.size * 0.3, cloud.size * 0.7, 0, Math.PI * 2);
+      ctx.arc(cloud.x + cloud.size, cloud.y, cloud.size * 0.8, 0, Math.PI * 2);
+      ctx.fill();
+    });
     
     // Draw ball
     ctx.beginPath();
@@ -244,14 +279,7 @@ const OrangeBallGame: React.FC = () => {
     ctx.fill();
     
     // Add shading to ball to make it look 3D
-    const gradient = ctx.createRadialGradient(
-      ball.x - ball.radius/3, ball.y - ball.radius/3,
-      0,
-      ball.x, ball.y,
-      ball.radius
-    );
-    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
-    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    const gradient = createBallGradient(ctx, ball.x, ball.y, ball.radius, ball.color);
     
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
@@ -261,28 +289,46 @@ const OrangeBallGame: React.FC = () => {
     // Draw obstacles
     for (let obstacle of obstacles) {
       if (obstacle.type === 'cactus') {
-        // Draw cactus
+        // Draw cactus with improved graphics
         ctx.fillStyle = '#3D9970';
         ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
         
+        // Cactus body details
+        ctx.fillStyle = '#2ECC40';
+        ctx.fillRect(obstacle.x + obstacle.width * 0.3, obstacle.y, obstacle.width * 0.4, obstacle.height);
+        
         // Draw spikes
         ctx.beginPath();
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < 5; i++) {
           const spikeX = obstacle.x + obstacle.width / 2;
-          const spikeYBase = obstacle.y + obstacle.height / 4 * i;
+          const spikeYBase = obstacle.y + obstacle.height / 6 * i;
           
           ctx.moveTo(spikeX, spikeYBase);
-          ctx.lineTo(spikeX + 10, spikeYBase);
+          ctx.lineTo(spikeX + 12, spikeYBase);
+          ctx.lineTo(spikeX, spikeYBase - 10);
+          ctx.closePath();
+        }
+        ctx.fillStyle = '#2ECC40';
+        ctx.fill();
+        
+        // Draw spikes on the other side
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+          const spikeX = obstacle.x + obstacle.width / 2;
+          const spikeYBase = obstacle.y + obstacle.height / 6 * i + 10;
+          
+          ctx.moveTo(spikeX, spikeYBase);
+          ctx.lineTo(spikeX - 12, spikeYBase);
           ctx.lineTo(spikeX, spikeYBase - 10);
           ctx.closePath();
         }
         ctx.fillStyle = '#2ECC40';
         ctx.fill();
       } else {
-        // Draw bird (using arc instead of ellipse for better browser compatibility)
-        ctx.fillStyle = '#FF851B';
+        // Draw bird with improved graphics
         
-        // Draw bird body
+        // Bird body
+        ctx.fillStyle = '#FF851B';
         ctx.beginPath();
         ctx.arc(
           obstacle.x + obstacle.width/2,
@@ -292,14 +338,34 @@ const OrangeBallGame: React.FC = () => {
         );
         ctx.fill();
         
-        // Draw wings (animated) - simplified to avoid performance issues
+        // Bird beak
+        ctx.fillStyle = '#FFDC00';
+        ctx.beginPath();
+        ctx.moveTo(obstacle.x + obstacle.width, obstacle.y + obstacle.height/2);
+        ctx.lineTo(obstacle.x + obstacle.width + 10, obstacle.y + obstacle.height/2);
+        ctx.lineTo(obstacle.x + obstacle.width, obstacle.y + obstacle.height/2 + 5);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Bird eye
+        ctx.fillStyle = '#111111';
+        ctx.beginPath();
+        ctx.arc(
+          obstacle.x + obstacle.width * 0.7,
+          obstacle.y + obstacle.height * 0.4,
+          2,
+          0, Math.PI * 2
+        );
+        ctx.fill();
+        
+        // Bird wings (animated)
         const wingPosition = Math.sin(Date.now() / 100) * 5;
+        ctx.fillStyle = '#FF4136';
         ctx.beginPath();
         ctx.moveTo(obstacle.x + obstacle.width/2, obstacle.y + obstacle.height/2);
-        ctx.lineTo(obstacle.x + obstacle.width/2, obstacle.y - 10 + wingPosition);
-        ctx.lineTo(obstacle.x + obstacle.width/2 + 10, obstacle.y + wingPosition);
+        ctx.lineTo(obstacle.x + obstacle.width/2, obstacle.y - 15 + wingPosition);
+        ctx.lineTo(obstacle.x + obstacle.width/2 + 15, obstacle.y - 5 + wingPosition);
         ctx.closePath();
-        ctx.fillStyle = '#FF4136';
         ctx.fill();
       }
     }
@@ -319,6 +385,13 @@ const OrangeBallGame: React.FC = () => {
     
     const finalScore = Math.floor(gameState.score/10);
     setFinalScore(finalScore);
+    
+    // Show message
+    toast({
+      title: "Game Over!",
+      description: `Your score: ${finalScore}`,
+      variant: "destructive",
+    });
     
     // Check if it's a high score
     let newHighScore = false;
@@ -353,8 +426,17 @@ const OrangeBallGame: React.FC = () => {
     // Save to localStorage
     try {
       localStorage.setItem('orangeBallHighScores', JSON.stringify(updatedScores));
+      toast({
+        title: "High score saved!",
+        description: `${playerName.trim()}: ${finalScore} points`,
+      });
     } catch (e) {
       console.log("Could not save high scores:", e);
+      toast({
+        title: "Error saving score",
+        description: "Could not save your high score",
+        variant: "destructive",
+      });
     }
   };
 
@@ -365,9 +447,16 @@ const OrangeBallGame: React.FC = () => {
     // Reset variables
     gameState.obstacles = [];
     gameState.score = 0;
-    gameState.gameSpeed = 5;
+    
+    // Apply current difficulty and ball size settings
+    const difficultyConfig = difficultySettings[difficulty];
+    gameState.ball.gravity = difficultyConfig.gravity;
+    gameState.ball.jumpForce = difficultyConfig.jumpForce;
+    gameState.gameSpeed = difficultyConfig.gameSpeed;
+    gameState.difficulty = difficulty;
     gameState.gameOver = false;
     gameState.lastObstacleTime = 0;
+    gameState.ball.radius = ballSize;
     
     if (gameState.canvas) {
       // Reset ball position
@@ -380,8 +469,26 @@ const OrangeBallGame: React.FC = () => {
     setScore(0);
     setIsNewHighScore(false);
     
+    // Show message
+    toast({
+      title: "Game Started!",
+      description: `Difficulty: ${difficulty}, Ball size: ${ballSize}px`,
+    });
+    
     // Start game loop
     gameLoop();
+  };
+
+  // Handle ball size change
+  const handleBallSizeChange = (size: number) => {
+    setBallSize(size);
+    // The actual ball size will be updated when the game restarts
+  };
+
+  // Handle difficulty change
+  const handleDifficultyChange = (newDifficulty: 'easy' | 'medium' | 'hard') => {
+    setDifficulty(newDifficulty);
+    // The actual difficulty will be applied when the game restarts
   };
 
   // Set up event listeners and initialize the game
@@ -436,69 +543,66 @@ const OrangeBallGame: React.FC = () => {
       cancelAnimationFrame(gameStateRef.current.animationId);
     };
   }, []);
+  
+  // Current highest score for display
+  const currentHighScore = highScores.length > 0 
+    ? [...highScores].sort((a, b) => b.score - a.score)[0].score 
+    : 0;
 
   return (
-    <div className="flex justify-center items-center min-h-screen bg-white font-sans overflow-hidden">
-      <div 
-        ref={gameContainerRef} 
-        className="relative w-full max-w-[1000px] h-[300px] mt-[50px] border-b-2 border-gray-400"
-      >
-        <div className="absolute top-2 right-5 text-right">
-          <div className="text-xl font-bold text-gray-700 mb-2">Score: {score}</div>
-          <div className="text-base text-gray-600 whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px]">
-            High Score: {highScores.length > 0 ? highScores[0].score : 0}
-          </div>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-blue-50 to-indigo-100 font-sans overflow-hidden p-4">
+      <div className="w-full max-w-4xl">
+        <div className="mb-4 text-center">
+          <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-[#FF7700] to-[#FF9933] bg-clip-text text-transparent">
+            Orange Ball Odyssey
+          </h1>
+          <p className="text-gray-600">Jump over obstacles and set a high score!</p>
         </div>
         
-        <canvas ref={canvasRef} className="w-full h-full"></canvas>
-        
-        {gameOver && (
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center bg-white/95 p-5 rounded-lg border-2 border-[#FF7700] min-w-[300px] z-10">
-            <h1 className="text-2xl font-bold mb-2">Game Over!</h1>
-            <p className="mb-4">Score: <span>{finalScore}</span></p>
-            
-            {isNewHighScore && (
-              <div className="mb-4">
-                <p className="font-bold">New High Score!</p>
-                <input
-                  type="text"
-                  value={playerName}
-                  onChange={(e) => setPlayerName(e.target.value)}
-                  placeholder="Enter your name"
-                  maxLength={20}
-                  className="w-full p-2 mt-2 border border-gray-300 rounded"
-                />
-                <button
-                  onClick={saveHighScore}
-                  className="mt-2 px-4 py-2 bg-[#FF7700] text-white rounded hover:bg-[#FF9933] transition-colors"
-                >
-                  Save Score
-                </button>
-              </div>
-            )}
-            
-            <div>
-              <h3 className="font-bold mb-2">High Scores</h3>
-              <div className="max-h-[100px] overflow-y-auto text-left">
-                {highScores.map((entry, index) => (
-                  <div key={index} className="py-1 border-b border-dotted border-gray-300">
-                    {index + 1}. {entry.name}: {entry.score}
-                  </div>
-                ))}
+        <div className="flex flex-col md:flex-row gap-4">
+          <div 
+            ref={gameContainerRef} 
+            className="relative bg-white w-full md:w-3/4 h-[300px] rounded-lg shadow-md border border-gray-200 overflow-hidden"
+          >
+            <div className="absolute top-2 right-5 text-right z-10">
+              <div className="text-xl font-bold text-gray-700 mb-2 bg-white/80 p-2 rounded-lg">Score: {score}</div>
+              <div className="text-base text-gray-600 whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px] bg-white/80 p-2 rounded-lg">
+                High Score: {currentHighScore}
               </div>
             </div>
             
-            <button
-              onClick={resetGame}
-              className="mt-5 px-5 py-2 bg-[#FF7700] text-white rounded hover:bg-[#FF9933] transition-colors"
-            >
-              Play Again
-            </button>
+            <canvas ref={canvasRef} className="w-full h-full"></canvas>
+            
+            {gameOver && (
+              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center bg-white/95 p-5 rounded-lg border-2 border-[#FF7700] min-w-[300px] z-10 shadow-xl">
+                <h1 className="text-2xl font-bold mb-2 text-[#FF7700]">Game Over!</h1>
+                
+                <HighScoreDisplay
+                  highScores={highScores}
+                  isNewHighScore={isNewHighScore}
+                  playerName={playerName}
+                  onPlayerNameChange={setPlayerName}
+                  onSaveScore={saveHighScore}
+                  finalScore={finalScore}
+                />
+              </div>
+            )}
+            
+            <div className="absolute bottom-2 left-5 text-gray-600 text-sm bg-white/80 px-3 py-1 rounded-full">
+              Press SPACE to jump or tap the screen
+            </div>
           </div>
-        )}
-        
-        <div className="absolute bottom-2 left-5 text-gray-600 text-sm">
-          Press SPACE to jump or tap the screen
+          
+          <div className="w-full md:w-1/4">
+            <GameControls
+              onRestart={resetGame}
+              onBallSizeChange={handleBallSizeChange}
+              ballSize={ballSize}
+              onDifficultyChange={handleDifficultyChange}
+              difficulty={difficulty}
+              isGameOver={gameOver}
+            />
+          </div>
         </div>
       </div>
     </div>
