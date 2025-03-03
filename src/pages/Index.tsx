@@ -2,7 +2,11 @@
 import OrangeBallGame from "@/components/OrangeBallGame";
 
 const Index = () => {
-  return <OrangeBallGame />;
+  return (
+    <div className="h-screen w-screen overflow-hidden">
+      <OrangeBallGame />
+    </div>
+  );
 };
 
 export default Index;

@@ -1,6 +1,6 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from '@/components/ui/use-toast';
-import GameControls from './game/GameControls';
 import HighScoreDisplay from './game/HighScoreDisplay';
 import { 
   GameState, 
@@ -21,8 +21,6 @@ const OrangeBallGame: React.FC = () => {
   const [highScores, setHighScores] = useState<{name: string, score: number}[]>([]);
   const [isNewHighScore, setIsNewHighScore] = useState(false);
   const [playerName, setPlayerName] = useState('');
-  const [ballSize, setBallSize] = useState(15);
-  const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   
   // Game variables stored in refs to persist across renders
   const gameStateRef = useRef<GameState>({
@@ -36,7 +34,9 @@ const OrangeBallGame: React.FC = () => {
       gravity: difficultySettings.medium.gravity,
       jumpForce: difficultySettings.medium.jumpForce,
       onGround: true,
-      color: '#FF7700'
+      color: '#FF7700',
+      consecutiveJumps: 0,
+      lastJumpTime: 0
     },
     obstacles: [],
     powerUps: [],
@@ -65,22 +65,21 @@ const OrangeBallGame: React.FC = () => {
     if (!ctx) return;
     
     // Set canvas size to fit container
-    canvas.width = container.clientWidth;
-    canvas.height = container.clientHeight;
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
     
     // Create ball
     gameStateRef.current.ball.y = canvas.height - 30;
-    gameStateRef.current.ball.radius = ballSize;
-    gameStateRef.current.ball.normalRadius = ballSize;
+    gameStateRef.current.ball.radius = 15;
+    gameStateRef.current.ball.normalRadius = 15;
     gameStateRef.current.canvas = canvas;
     gameStateRef.current.ctx = ctx;
     
-    // Apply difficulty settings
-    const difficultyConfig = difficultySettings[difficulty];
-    gameStateRef.current.ball.gravity = difficultyConfig.gravity;
-    gameStateRef.current.ball.jumpForce = difficultyConfig.jumpForce;
-    gameStateRef.current.gameSpeed = difficultyConfig.gameSpeed;
-    gameStateRef.current.difficulty = difficulty;
+    // Apply default settings
+    gameStateRef.current.ball.gravity = difficultySettings.medium.gravity;
+    gameStateRef.current.ball.jumpForce = difficultySettings.medium.jumpForce;
+    gameStateRef.current.gameSpeed = difficultySettings.medium.gameSpeed;
+    gameStateRef.current.difficulty = 'medium';
     
     // Load high scores
     try {
@@ -96,35 +95,63 @@ const OrangeBallGame: React.FC = () => {
   // Handle window resize
   const resizeCanvas = () => {
     const canvas = gameStateRef.current.canvas;
-    const container = gameContainerRef.current;
     
-    if (!canvas || !container) return;
+    if (!canvas) return;
     
-    canvas.width = container.clientWidth;
-    canvas.height = container.clientHeight;
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
     
     // Reset ball position after resize
     gameStateRef.current.ball.y = canvas.height - 30;
   };
 
-  // Jump function
+  // Jump function with multi-tap mechanics
   const jump = () => {
     const { ball } = gameStateRef.current;
+    const currentTime = Date.now();
     
     if (ball.onGround) {
+      // Reset consecutive jumps when starting from ground
+      ball.consecutiveJumps = 1;
+      ball.lastJumpTime = currentTime;
+      
+      // Base jump
       ball.velocityY = ball.jumpForce;
       ball.onGround = false;
+    } else {
+      // Check if this is a quick consecutive tap (within 300ms)
+      const timeSinceLastJump = currentTime - ball.lastJumpTime;
+      
+      if (timeSinceLastJump < 300 && ball.consecutiveJumps < 3) {
+        // Consecutive jump - stronger with each tap (up to 3)
+        ball.consecutiveJumps++;
+        ball.lastJumpTime = currentTime;
+        
+        // Increase jump power with each consecutive tap
+        const powerMultiplier = 1 + (ball.consecutiveJumps * 0.2);
+        ball.velocityY = ball.jumpForce * powerMultiplier;
+        
+        // Visual feedback for power jumps
+        const powerLevel = ball.consecutiveJumps;
+        if (powerLevel >= 2) {
+          toast({
+            title: `Power Jump Level ${powerLevel}!`,
+            description: "Reaching higher altitudes",
+            duration: 1000,
+          });
+        }
+      }
     }
   };
 
   // Move left function
   const moveLeft = () => {
-    gameStateRef.current.ball.velocityX = -2;
+    gameStateRef.current.ball.velocityX = -5;
   };
 
   // Move right function
   const moveRight = () => {
-    gameStateRef.current.ball.velocityX = 2;
+    gameStateRef.current.ball.velocityX = 5;
   };
 
   // Stop horizontal movement
@@ -164,7 +191,7 @@ const OrangeBallGame: React.FC = () => {
     // Update ball physics
     updateBall();
     
-    // Spawn obstacles
+    // Spawn obstacles with difficulty based on ball size
     updateObstacles();
     
     // Spawn power-ups
@@ -208,9 +235,14 @@ const OrangeBallGame: React.FC = () => {
       ball.x = canvas.width - ball.radius;
       ball.velocityX = 0;
     }
+    
+    // Reset consecutive jumps if falling
+    if (ball.velocityY > 0 && !ball.onGround) {
+      ball.consecutiveJumps = 0;
+    }
   };
 
-  // Update obstacles
+  // Update obstacles with difficulty based on ball size
   const updateObstacles = () => {
     const gameState = gameStateRef.current;
     const currentTime = Date.now();
@@ -218,24 +250,37 @@ const OrangeBallGame: React.FC = () => {
     
     if (!gameState.canvas) return;
     
+    // Calculate obstacle frequency based on ball size
+    // Smaller ball = easier (less frequent obstacles)
+    // Larger ball = harder (more frequent obstacles)
+    const sizeRatio = gameState.ball.radius / gameState.ball.normalRadius;
+    const frequencyAdjustment = sizeRatio * 200; // More frequent with larger ball
+    
     // Add new obstacle
     const timeDiff = currentTime - gameState.lastObstacleTime;
-    const spawnInterval = Math.max(300, difficultyConfig.obstacleFrequency - gameState.gameSpeed * 60);
+    const baseInterval = difficultyConfig.obstacleFrequency;
+    const spawnInterval = Math.max(300, baseInterval - frequencyAdjustment - gameState.gameSpeed * 60);
     
     if (timeDiff > spawnInterval) {
       // Random obstacle type (cactus or bird)
-      const obstacleType = Math.random() > 0.7 ? 'bird' : 'cactus';
+      // Higher chance of birds for larger balls (harder)
+      const birdChance = 0.3 + (sizeRatio - 1) * 0.3;
+      const obstacleType = Math.random() > (1 - birdChance) ? 'bird' : 'cactus';
       
       let height, width, y;
       
       if (obstacleType === 'cactus') {
-        height = 30 + Math.random() * 40;
-        width = 20;
+        // Taller cactus for larger balls (harder)
+        const heightMultiplier = 1 + (sizeRatio - 1) * 0.5;
+        height = (30 + Math.random() * 40) * heightMultiplier;
+        width = 20 * heightMultiplier;
         y = gameState.canvas.height - height;
       } else { // bird
         height = 20;
         width = 30;
-        y = gameState.canvas.height - 50 - Math.random() * 70;
+        // Birds at varying heights, higher difficulty = more varied heights
+        const heightVariation = Math.random() * 70 * sizeRatio;
+        y = gameState.canvas.height - 50 - heightVariation;
       }
       
       // Ensure y is within canvas bounds
@@ -254,7 +299,9 @@ const OrangeBallGame: React.FC = () => {
     
     // Move obstacles
     for (let i = 0; i < gameState.obstacles.length; i++) {
-      gameState.obstacles[i].x -= gameState.gameSpeed;
+      // Obstacles move faster for larger balls (harder)
+      const speedMultiplier = 1 + (sizeRatio - 1) * 0.3;
+      gameState.obstacles[i].x -= gameState.gameSpeed * speedMultiplier;
       
       // Remove obstacles that have gone off screen
       if (gameState.obstacles[i].x + gameState.obstacles[i].width < 0) {
@@ -600,17 +647,19 @@ const OrangeBallGame: React.FC = () => {
     gameState.powerUps = [];
     gameState.score = 0;
     
-    // Apply current difficulty and ball size settings
-    const difficultyConfig = difficultySettings[difficulty];
+    // Apply medium difficulty settings
+    const difficultyConfig = difficultySettings.medium;
     gameState.ball.gravity = difficultyConfig.gravity;
     gameState.ball.jumpForce = difficultyConfig.jumpForce;
     gameState.gameSpeed = difficultyConfig.gameSpeed;
-    gameState.difficulty = difficulty;
+    gameState.difficulty = 'medium';
     gameState.gameOver = false;
     gameState.lastObstacleTime = 0;
     gameState.lastPowerUpTime = 0;
-    gameState.ball.radius = ballSize;
-    gameState.ball.normalRadius = ballSize;
+    gameState.ball.radius = 15;
+    gameState.ball.normalRadius = 15;
+    gameState.ball.consecutiveJumps = 0;
+    gameState.ball.lastJumpTime = 0;
     
     if (gameState.canvas) {
       // Reset ball position
@@ -628,23 +677,11 @@ const OrangeBallGame: React.FC = () => {
     // Show message
     toast({
       title: "Game Started!",
-      description: `Difficulty: ${difficulty}, Ball size: ${ballSize}px`,
+      description: "Space to jump, hold for higher jumps. Arrow keys to move.",
     });
     
     // Start game loop
     gameLoop();
-  };
-
-  // Handle ball size change
-  const handleBallSizeChange = (size: number) => {
-    setBallSize(size);
-    // The actual ball size will be updated when the game restarts
-  };
-
-  // Handle difficulty change
-  const handleDifficultyChange = (newDifficulty: 'easy' | 'medium' | 'hard') => {
-    setDifficulty(newDifficulty);
-    // The actual difficulty will be applied when the game restarts
   };
 
   // Set up event listeners and initialize the game
@@ -722,59 +759,44 @@ const OrangeBallGame: React.FC = () => {
     : 0;
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-blue-50 to-indigo-100 font-sans overflow-hidden p-4">
-      <div className="w-full max-w-4xl">
-        <div className="mb-4 text-center">
-          <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-[#FF7700] to-[#FF9933] bg-clip-text text-transparent">
-            Orange Ball Odyssey
-          </h1>
-          <p className="text-gray-600">Collect power-ups, jump and move to avoid obstacles!</p>
+    <div className="h-screen w-screen overflow-hidden">
+      <div 
+        ref={gameContainerRef} 
+        className="relative w-full h-full"
+      >
+        <div className="absolute top-2 right-5 text-right z-10">
+          <div className="text-xl font-bold text-gray-700 mb-2 bg-white/80 p-2 rounded-lg">Score: {score}</div>
+          <div className="text-base text-gray-600 whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px] bg-white/80 p-2 rounded-lg">
+            High Score: {currentHighScore}
+          </div>
         </div>
         
-        <div className="flex flex-col md:flex-row gap-4">
-          <div 
-            ref={gameContainerRef} 
-            className="relative bg-white w-full md:w-3/4 h-[300px] rounded-lg shadow-md border border-gray-200 overflow-hidden"
-          >
-            <div className="absolute top-2 right-5 text-right z-10">
-              <div className="text-xl font-bold text-gray-700 mb-2 bg-white/80 p-2 rounded-lg">Score: {score}</div>
-              <div className="text-base text-gray-600 whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px] bg-white/80 p-2 rounded-lg">
-                High Score: {currentHighScore}
-              </div>
-            </div>
+        <canvas ref={canvasRef} className="w-full h-full"></canvas>
+        
+        {gameOver && (
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center bg-white/95 p-5 rounded-lg border-2 border-[#FF7700] min-w-[300px] z-10 shadow-xl">
+            <h1 className="text-2xl font-bold mb-2 text-[#FF7700]">Game Over!</h1>
             
-            <canvas ref={canvasRef} className="w-full h-full"></canvas>
-            
-            {gameOver && (
-              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center bg-white/95 p-5 rounded-lg border-2 border-[#FF7700] min-w-[300px] z-10 shadow-xl">
-                <h1 className="text-2xl font-bold mb-2 text-[#FF7700]">Game Over!</h1>
-                
-                <HighScoreDisplay
-                  highScores={highScores}
-                  isNewHighScore={isNewHighScore}
-                  playerName={playerName}
-                  onPlayerNameChange={setPlayerName}
-                  onSaveScore={saveHighScore}
-                  finalScore={finalScore}
-                />
-              </div>
-            )}
-            
-            <div className="absolute bottom-2 left-5 text-gray-600 text-sm bg-white/80 px-3 py-1 rounded-full">
-              ↑/SPACE to jump, ←/→ to move
-            </div>
-          </div>
-          
-          <div className="w-full md:w-1/4">
-            <GameControls
-              onRestart={resetGame}
-              onBallSizeChange={handleBallSizeChange}
-              ballSize={ballSize}
-              onDifficultyChange={handleDifficultyChange}
-              difficulty={difficulty}
-              isGameOver={gameOver}
+            <HighScoreDisplay
+              highScores={highScores}
+              isNewHighScore={isNewHighScore}
+              playerName={playerName}
+              onPlayerNameChange={setPlayerName}
+              onSaveScore={saveHighScore}
+              finalScore={finalScore}
             />
+            
+            <button 
+              className="mt-4 px-4 py-2 bg-[#FF7700] hover:bg-[#FF9933] text-white rounded-md transition-colors"
+              onClick={resetGame}
+            >
+              Play Again
+            </button>
           </div>
+        )}
+        
+        <div className="absolute bottom-2 left-5 text-gray-600 text-sm bg-white/80 px-3 py-1 rounded-full">
+          ↑/SPACE: tap multiple times for higher jumps, ←/→ to move
         </div>
       </div>
     </div>

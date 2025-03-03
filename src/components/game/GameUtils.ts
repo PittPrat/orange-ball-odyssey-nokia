@@ -1,4 +1,3 @@
-
 // Ball interface
 export interface Ball {
   x: number;
@@ -11,6 +10,8 @@ export interface Ball {
   onGround: boolean;
   color: string;
   normalRadius: number;
+  consecutiveJumps: number;
+  lastJumpTime: number;
 }
 
 // Obstacle interface
