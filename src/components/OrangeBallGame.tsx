@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from '@/components/ui/use-toast';
 import HighScoreDisplay from './game/HighScoreDisplay';
@@ -22,7 +21,6 @@ const OrangeBallGame: React.FC = () => {
   const [isNewHighScore, setIsNewHighScore] = useState(false);
   const [playerName, setPlayerName] = useState('');
   
-  // Game variables stored in refs to persist across renders
   const gameStateRef = useRef<GameState>({
     ball: {
       x: 80,
@@ -54,7 +52,6 @@ const OrangeBallGame: React.FC = () => {
     difficulty: 'medium'
   });
 
-  // Initialize the game
   const initGame = () => {
     const canvas = canvasRef.current;
     const container = gameContainerRef.current;
@@ -64,24 +61,20 @@ const OrangeBallGame: React.FC = () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Set canvas size to fit container
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     
-    // Create ball
     gameStateRef.current.ball.y = canvas.height - 30;
     gameStateRef.current.ball.radius = 15;
     gameStateRef.current.ball.normalRadius = 15;
     gameStateRef.current.canvas = canvas;
     gameStateRef.current.ctx = ctx;
     
-    // Apply default settings
     gameStateRef.current.ball.gravity = difficultySettings.medium.gravity;
     gameStateRef.current.ball.jumpForce = difficultySettings.medium.jumpForce;
     gameStateRef.current.gameSpeed = difficultySettings.medium.gameSpeed;
     gameStateRef.current.difficulty = 'medium';
     
-    // Load high scores
     try {
       const savedScores = localStorage.getItem('orangeBallHighScores');
       if (savedScores) {
@@ -92,7 +85,6 @@ const OrangeBallGame: React.FC = () => {
     }
   };
 
-  // Handle window resize
   const resizeCanvas = () => {
     const canvas = gameStateRef.current.canvas;
     
@@ -101,37 +93,29 @@ const OrangeBallGame: React.FC = () => {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     
-    // Reset ball position after resize
     gameStateRef.current.ball.y = canvas.height - 30;
   };
 
-  // Jump function with multi-tap mechanics
   const jump = () => {
     const { ball } = gameStateRef.current;
     const currentTime = Date.now();
     
     if (ball.onGround) {
-      // Reset consecutive jumps when starting from ground
       ball.consecutiveJumps = 1;
       ball.lastJumpTime = currentTime;
       
-      // Base jump
       ball.velocityY = ball.jumpForce;
       ball.onGround = false;
     } else {
-      // Check if this is a quick consecutive tap (within 300ms)
       const timeSinceLastJump = currentTime - ball.lastJumpTime;
       
       if (timeSinceLastJump < 300 && ball.consecutiveJumps < 3) {
-        // Consecutive jump - stronger with each tap (up to 3)
         ball.consecutiveJumps++;
         ball.lastJumpTime = currentTime;
         
-        // Increase jump power with each consecutive tap
         const powerMultiplier = 1 + (ball.consecutiveJumps * 0.2);
         ball.velocityY = ball.jumpForce * powerMultiplier;
         
-        // Visual feedback for power jumps
         const powerLevel = ball.consecutiveJumps;
         if (powerLevel >= 2) {
           toast({
@@ -144,22 +128,35 @@ const OrangeBallGame: React.FC = () => {
     }
   };
 
-  // Move left function
   const moveLeft = () => {
     gameStateRef.current.ball.velocityX = -5;
+    const gameState = gameStateRef.current;
+    for (let obstacle of gameState.obstacles) {
+      obstacle.x += 5;
+    }
+    for (let powerUp of gameState.powerUps) {
+      powerUp.x += 5;
+    }
   };
 
-  // Move right function
   const moveRight = () => {
     gameStateRef.current.ball.velocityX = 5;
+    const gameState = gameStateRef.current;
+    for (let obstacle of gameState.obstacles) {
+      obstacle.x -= 5;
+    }
+    for (let powerUp of gameState.powerUps) {
+      powerUp.x -= 5;
+    }
+    
+    gameState.score++;
+    setScore(Math.floor(gameState.score/10));
   };
 
-  // Stop horizontal movement
   const stopHorizontalMovement = () => {
     gameStateRef.current.ball.velocityX = 0;
   };
 
-  // Game loop
   const gameLoop = () => {
     const gameState = gameStateRef.current;
     
@@ -170,16 +167,13 @@ const OrangeBallGame: React.FC = () => {
     }
   };
 
-  // Update game state
   const update = () => {
     const gameState = gameStateRef.current;
     
-    // Increase game speed over time
     if (gameState.score % 200 === 0 && gameState.score > 0) {
       gameState.gameSpeed += 0.1;
     }
     
-    // Apply horizontal movement from controls
     if (gameState.leftPressed) {
       moveLeft();
     } else if (gameState.rightPressed) {
@@ -188,37 +182,25 @@ const OrangeBallGame: React.FC = () => {
       stopHorizontalMovement();
     }
     
-    // Update ball physics
     updateBall();
     
-    // Spawn obstacles with difficulty based on ball size
     updateObstacles();
     
-    // Spawn power-ups
     updatePowerUps();
     
-    // Check for collisions
     checkCollisions();
-    
-    // Update score
-    gameState.score++;
-    setScore(Math.floor(gameState.score/10));
   };
 
-  // Update ball physics
   const updateBall = () => {
     const { ball, canvas } = gameStateRef.current;
     
     if (!canvas) return;
     
-    // Apply gravity
     ball.velocityY += ball.gravity;
     
-    // Update position
     ball.y += ball.velocityY;
     ball.x += ball.velocityX;
     
-    // Check for ground collision
     if (ball.y + ball.radius > canvas.height) {
       ball.y = canvas.height - ball.radius;
       ball.velocityY = 0;
@@ -227,7 +209,6 @@ const OrangeBallGame: React.FC = () => {
       ball.onGround = false;
     }
     
-    // Check for horizontal boundaries
     if (ball.x - ball.radius < 0) {
       ball.x = ball.radius;
       ball.velocityX = 0;
@@ -236,13 +217,11 @@ const OrangeBallGame: React.FC = () => {
       ball.velocityX = 0;
     }
     
-    // Reset consecutive jumps if falling
     if (ball.velocityY > 0 && !ball.onGround) {
       ball.consecutiveJumps = 0;
     }
   };
 
-  // Update obstacles with difficulty based on ball size
   const updateObstacles = () => {
     const gameState = gameStateRef.current;
     const currentTime = Date.now();
@@ -250,44 +229,34 @@ const OrangeBallGame: React.FC = () => {
     
     if (!gameState.canvas) return;
     
-    // Calculate obstacle frequency based on ball size
-    // Smaller ball = easier (less frequent obstacles)
-    // Larger ball = harder (more frequent obstacles)
     const sizeRatio = gameState.ball.radius / gameState.ball.normalRadius;
-    const frequencyAdjustment = sizeRatio * 200; // More frequent with larger ball
+    const frequencyAdjustment = sizeRatio * 200;
     
-    // Add new obstacle
     const timeDiff = currentTime - gameState.lastObstacleTime;
     const baseInterval = difficultyConfig.obstacleFrequency;
     const spawnInterval = Math.max(300, baseInterval - frequencyAdjustment - gameState.gameSpeed * 60);
     
-    if (timeDiff > spawnInterval) {
-      // Random obstacle type (cactus or bird)
-      // Higher chance of birds for larger balls (harder)
-      const birdChance = 0.3 + (sizeRatio - 1) * 0.3;
-      const obstacleType = Math.random() > (1 - birdChance) ? 'bird' : 'cactus';
+    if (timeDiff > spawnInterval && gameState.score % 50 === 0) {
+      const obstacleType = Math.random() > 0.3 ? 'bird' : 'cactus';
       
       let height, width, y;
       
       if (obstacleType === 'cactus') {
-        // Taller cactus for larger balls (harder)
         const heightMultiplier = 1 + (sizeRatio - 1) * 0.5;
         height = (30 + Math.random() * 40) * heightMultiplier;
         width = 20 * heightMultiplier;
         y = gameState.canvas.height - height;
-      } else { // bird
+      } else {
         height = 20;
         width = 30;
-        // Birds at varying heights, higher difficulty = more varied heights
         const heightVariation = Math.random() * 70 * sizeRatio;
         y = gameState.canvas.height - 50 - heightVariation;
       }
       
-      // Ensure y is within canvas bounds
       y = Math.max(0, Math.min(y, gameState.canvas.height - height));
       
       gameState.obstacles.push({
-        x: gameState.canvas.width,
+        x: gameState.canvas.width + Math.random() * 100,
         y: y,
         width: width,
         height: height,
@@ -297,13 +266,10 @@ const OrangeBallGame: React.FC = () => {
       gameState.lastObstacleTime = currentTime;
     }
     
-    // Move obstacles
     for (let i = 0; i < gameState.obstacles.length; i++) {
-      // Obstacles move faster for larger balls (harder)
       const speedMultiplier = 1 + (sizeRatio - 1) * 0.3;
       gameState.obstacles[i].x -= gameState.gameSpeed * speedMultiplier;
       
-      // Remove obstacles that have gone off screen
       if (gameState.obstacles[i].x + gameState.obstacles[i].width < 0) {
         gameState.obstacles.splice(i, 1);
         i--;
@@ -311,7 +277,6 @@ const OrangeBallGame: React.FC = () => {
     }
   };
 
-  // Update power-ups
   const updatePowerUps = () => {
     const gameState = gameStateRef.current;
     const currentTime = Date.now();
@@ -319,24 +284,21 @@ const OrangeBallGame: React.FC = () => {
     
     if (!gameState.canvas) return;
     
-    // Add new power-up
     const timeDiff = currentTime - gameState.lastPowerUpTime;
     const spawnInterval = difficultyConfig.powerUpFrequency;
     
-    if (timeDiff > spawnInterval) {
-      // Random power-up type (grow or shrink)
+    if (timeDiff > spawnInterval && gameState.score % 150 === 0) {
       const powerUpType = Math.random() > 0.5 ? 'grow' : 'shrink';
       
       const width = 20;
       const height = 25;
       
-      // Place power-up between 1/3 and 2/3 of screen height
       const minY = gameState.canvas.height * 0.3;
       const maxY = gameState.canvas.height * 0.7;
       const y = minY + Math.random() * (maxY - minY);
       
       gameState.powerUps.push({
-        x: gameState.canvas.width,
+        x: gameState.canvas.width + Math.random() * 200,
         y: y,
         width: width,
         height: height,
@@ -347,11 +309,9 @@ const OrangeBallGame: React.FC = () => {
       gameState.lastPowerUpTime = currentTime;
     }
     
-    // Move power-ups
     for (let i = 0; i < gameState.powerUps.length; i++) {
       gameState.powerUps[i].x -= gameState.gameSpeed;
       
-      // Remove power-ups that have gone off screen
       if (gameState.powerUps[i].x + gameState.powerUps[i].width < 0) {
         gameState.powerUps.splice(i, 1);
         i--;
@@ -359,13 +319,10 @@ const OrangeBallGame: React.FC = () => {
     }
   };
 
-  // Check for collisions
   const checkCollisions = () => {
     const { ball, obstacles, powerUps } = gameStateRef.current;
     
-    // Check obstacle collisions
     for (let obstacle of obstacles) {
-      // Simple rectangle-circle collision
       if (
         ball.x + ball.radius > obstacle.x &&
         ball.x - ball.radius < obstacle.x + obstacle.width &&
@@ -377,7 +334,6 @@ const OrangeBallGame: React.FC = () => {
       }
     }
     
-    // Check power-up collisions
     for (let i = 0; i < powerUps.length; i++) {
       const powerUp = powerUps[i];
       
@@ -387,9 +343,7 @@ const OrangeBallGame: React.FC = () => {
           ball.y + ball.radius > powerUp.y &&
           ball.y - ball.radius < powerUp.y + powerUp.height
       ) {
-        // Apply power-up effect
         if (powerUp.type === 'grow') {
-          // Increase ball size
           ball.radius = Math.min(ball.normalRadius * 1.5, 25);
           toast({
             title: "Power-up!",
@@ -397,7 +351,6 @@ const OrangeBallGame: React.FC = () => {
             variant: "default",
           });
         } else if (powerUp.type === 'shrink') {
-          // Decrease ball size
           ball.radius = Math.max(ball.normalRadius * 0.7, 10);
           toast({
             title: "Power-up!",
@@ -406,11 +359,9 @@ const OrangeBallGame: React.FC = () => {
           });
         }
         
-        // Deactivate the power-up
         powerUps.splice(i, 1);
         i--;
         
-        // Reset ball size after a few seconds
         setTimeout(() => {
           if (!gameStateRef.current.gameOver) {
             ball.radius = ball.normalRadius;
@@ -424,33 +375,25 @@ const OrangeBallGame: React.FC = () => {
     }
   };
 
-  // Render game objects
   const render = () => {
     const { ctx, canvas, ball, obstacles, powerUps } = gameStateRef.current;
     
     if (!ctx || !canvas) return;
     
-    // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Draw sky gradient background
     const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
     skyGradient.addColorStop(0, '#87CEEB');
     skyGradient.addColorStop(1, '#E0F7FF');
     ctx.fillStyle = skyGradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Draw ground with grass texture
-    const groundHeight = 20;
     ctx.fillStyle = '#8B4513';
-    ctx.fillRect(0, canvas.height - groundHeight, canvas.width, groundHeight);
+    ctx.fillRect(0, canvas.height - 20, canvas.width, 20);
     
-    // Draw grass
     ctx.fillStyle = '#3D9970';
-    ctx.fillRect(0, canvas.height - groundHeight, canvas.width, 5);
+    ctx.fillRect(0, canvas.height - 25, canvas.width, 5);
     
-    // Draw some clouds
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
     const cloudPositions = [
       { x: canvas.width * 0.1, y: canvas.height * 0.2, size: 40 },
       { x: canvas.width * 0.5, y: canvas.height * 0.1, size: 30 },
@@ -465,23 +408,18 @@ const OrangeBallGame: React.FC = () => {
       ctx.fill();
     });
     
-    // Draw power-ups
     for (let powerUp of powerUps) {
       drawPowerUp(ctx, powerUp);
     }
     
-    // Draw obstacles
     for (let obstacle of obstacles) {
       if (obstacle.type === 'cactus') {
-        // Draw cactus with improved graphics
         ctx.fillStyle = '#3D9970';
         ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
         
-        // Cactus body details
         ctx.fillStyle = '#2ECC40';
         ctx.fillRect(obstacle.x + obstacle.width * 0.3, obstacle.y, obstacle.width * 0.4, obstacle.height);
         
-        // Draw spikes
         ctx.beginPath();
         for (let i = 0; i < 5; i++) {
           const spikeX = obstacle.x + obstacle.width / 2;
@@ -495,7 +433,6 @@ const OrangeBallGame: React.FC = () => {
         ctx.fillStyle = '#2ECC40';
         ctx.fill();
         
-        // Draw spikes on the other side
         ctx.beginPath();
         for (let i = 0; i < 5; i++) {
           const spikeX = obstacle.x + obstacle.width / 2;
@@ -509,9 +446,6 @@ const OrangeBallGame: React.FC = () => {
         ctx.fillStyle = '#2ECC40';
         ctx.fill();
       } else {
-        // Draw bird with improved graphics
-        
-        // Bird body
         ctx.fillStyle = '#FF851B';
         ctx.beginPath();
         ctx.arc(
@@ -522,7 +456,6 @@ const OrangeBallGame: React.FC = () => {
         );
         ctx.fill();
         
-        // Bird beak
         ctx.fillStyle = '#FFDC00';
         ctx.beginPath();
         ctx.moveTo(obstacle.x + obstacle.width, obstacle.y + obstacle.height/2);
@@ -531,7 +464,6 @@ const OrangeBallGame: React.FC = () => {
         ctx.closePath();
         ctx.fill();
         
-        // Bird eye
         ctx.fillStyle = '#111111';
         ctx.beginPath();
         ctx.arc(
@@ -542,25 +474,21 @@ const OrangeBallGame: React.FC = () => {
         );
         ctx.fill();
         
-        // Bird wings (animated)
-        const wingPosition = Math.sin(Date.now() / 100) * 5;
         ctx.fillStyle = '#FF4136';
         ctx.beginPath();
         ctx.moveTo(obstacle.x + obstacle.width/2, obstacle.y + obstacle.height/2);
-        ctx.lineTo(obstacle.x + obstacle.width/2, obstacle.y - 15 + wingPosition);
-        ctx.lineTo(obstacle.x + obstacle.width/2 + 15, obstacle.y - 5 + wingPosition);
+        ctx.lineTo(obstacle.x + obstacle.width/2, obstacle.y - 15);
+        ctx.lineTo(obstacle.x + obstacle.width/2 + 15, obstacle.y - 5);
         ctx.closePath();
         ctx.fill();
       }
     }
     
-    // Draw ball
     ctx.beginPath();
     ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
     ctx.fillStyle = ball.color;
     ctx.fill();
     
-    // Add shading to ball to make it look 3D
     const gradient = createBallGradient(ctx, ball.x, ball.y, ball.radius, ball.color);
     
     ctx.beginPath();
@@ -569,13 +497,11 @@ const OrangeBallGame: React.FC = () => {
     ctx.fill();
   };
 
-  // End the game
   const endGame = () => {
     const gameState = gameStateRef.current;
     gameState.gameOver = true;
     setGameOver(true);
     
-    // Ensure animation frame is canceled
     if (gameState.animationId) {
       cancelAnimationFrame(gameState.animationId);
       gameState.animationId = 0;
@@ -584,25 +510,21 @@ const OrangeBallGame: React.FC = () => {
     const finalScore = Math.floor(gameState.score/10);
     setFinalScore(finalScore);
     
-    // Show message
     toast({
       title: "Game Over!",
       description: `Your score: ${finalScore}`,
       variant: "destructive",
     });
     
-    // Check if it's a high score
     let newHighScore = false;
     
     if (finalScore > 0) {
       if (highScores.length === 0) {
         newHighScore = true;
       } else {
-        // Get the current highest score
         const sortedScores = [...highScores].sort((a, b) => b.score - a.score);
         const currentTopScore = sortedScores.length > 0 ? sortedScores[0].score : 0;
         
-        // Check if we beat the highest score
         newHighScore = finalScore > currentTopScore;
       }
     }
@@ -610,7 +532,6 @@ const OrangeBallGame: React.FC = () => {
     setIsNewHighScore(newHighScore);
   };
 
-  // Save high score
   const saveHighScore = () => {
     if (!playerName.trim()) return;
     
@@ -621,7 +542,6 @@ const OrangeBallGame: React.FC = () => {
     setPlayerName('');
     setIsNewHighScore(false);
     
-    // Save to localStorage
     try {
       localStorage.setItem('orangeBallHighScores', JSON.stringify(updatedScores));
       toast({
@@ -638,16 +558,13 @@ const OrangeBallGame: React.FC = () => {
     }
   };
 
-  // Reset the game
   const resetGame = () => {
     const gameState = gameStateRef.current;
     
-    // Reset variables
     gameState.obstacles = [];
     gameState.powerUps = [];
     gameState.score = 0;
     
-    // Apply medium difficulty settings
     const difficultyConfig = difficultySettings.medium;
     gameState.ball.gravity = difficultyConfig.gravity;
     gameState.ball.jumpForce = difficultyConfig.jumpForce;
@@ -662,7 +579,6 @@ const OrangeBallGame: React.FC = () => {
     gameState.ball.lastJumpTime = 0;
     
     if (gameState.canvas) {
-      // Reset ball position
       gameState.ball.x = 80;
       gameState.ball.y = gameState.canvas.height - 30;
     }
@@ -674,17 +590,14 @@ const OrangeBallGame: React.FC = () => {
     setScore(0);
     setIsNewHighScore(false);
     
-    // Show message
     toast({
       title: "Game Started!",
-      description: "Space to jump, hold for higher jumps. Arrow keys to move.",
+      description: "Space/Up to jump, tap multiple times for higher jumps. Left/Right to move.",
     });
     
-    // Start game loop
     gameLoop();
   };
 
-  // Set up event listeners and initialize the game
   useEffect(() => {
     initGame();
     
@@ -726,7 +639,6 @@ const OrangeBallGame: React.FC = () => {
       resizeCanvas();
     };
     
-    // Add event listeners
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('resize', handleResize);
@@ -736,10 +648,8 @@ const OrangeBallGame: React.FC = () => {
       canvas.addEventListener('touchstart', handleTouchStart);
     }
     
-    // Start game loop
     gameLoop();
     
-    // Cleanup function
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
@@ -753,7 +663,6 @@ const OrangeBallGame: React.FC = () => {
     };
   }, []);
   
-  // Current highest score for display
   const currentHighScore = highScores.length > 0 
     ? [...highScores].sort((a, b) => b.score - a.score)[0].score 
     : 0;
