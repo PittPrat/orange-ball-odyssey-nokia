@@ -1,10 +1,10 @@
 
-import OrangeBallGame from "@/components/OrangeBallGame";
+import OrangeBall3DGame from "@/components/OrangeBall3DGame";
 
 const Index = () => {
   return (
     <div className="h-screen w-screen overflow-hidden">
-      <OrangeBallGame />
+      <OrangeBall3DGame />
     </div>
   );
 };
