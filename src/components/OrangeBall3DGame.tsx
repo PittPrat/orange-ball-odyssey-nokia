@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { toast } from '@/components/ui/use-toast';
@@ -806,3 +807,9 @@ const OrangeBall3DGame: React.FC = () => {
       
       <div className="absolute bottom-2 left-5 text-white text-sm bg-black/30 px-3 py-1 rounded-full">
         ↑/SPACE: tap multiple times for higher jumps, Arrow keys/WAS
+      </div>
+    </div>
+  );
+};
+
+export default OrangeBall3DGame;
