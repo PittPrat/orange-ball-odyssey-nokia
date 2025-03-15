@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { toast } from '@/components/ui/use-toast';
@@ -15,30 +14,24 @@ interface GameState {
     gravity: number;
     consecutiveJumps: number;
     lastJumpTime: number;
+    deflated: boolean;
   };
   obstacles: {
     mesh: THREE.Mesh;
     type: string;
-    size: THREE.Vector3;
+    dangerous: boolean;
   }[];
-  powerUps: {
-    mesh: THREE.Mesh;
-    type: 'grow' | 'shrink';
-    active: boolean;
-  }[];
+  buildings: THREE.Mesh[];
   scene: THREE.Scene | null;
   camera: THREE.PerspectiveCamera | null;
   renderer: THREE.WebGLRenderer | null;
   score: number;
   gameSpeed: number;
-  lastObstacleTime: number;
-  lastPowerUpTime: number;
   jumpPressed: boolean;
   leftPressed: boolean;
   rightPressed: boolean;
   animationId: number;
   gameOver: boolean;
-  maze: THREE.Mesh[];
   goalPosition: THREE.Vector3;
   mazeCompleted: boolean;
 }
@@ -63,24 +56,22 @@ const OrangeBall3DGame: React.FC = () => {
       jumpForce: 0.3,
       gravity: 0.015,
       consecutiveJumps: 0,
-      lastJumpTime: 0
+      lastJumpTime: 0,
+      deflated: false
     },
     obstacles: [],
-    powerUps: [],
+    buildings: [],
     scene: null,
     camera: null,
     renderer: null,
     score: 0,
     gameSpeed: 0.1,
-    lastObstacleTime: 0,
-    lastPowerUpTime: 0,
     jumpPressed: false,
     leftPressed: false,
     rightPressed: false,
     animationId: 0,
     gameOver: false,
-    maze: [],
-    goalPosition: new THREE.Vector3(25, 1, 25),
+    goalPosition: new THREE.Vector3(60, 0.5, 60),
     mazeCompleted: false
   });
 
@@ -99,14 +90,14 @@ const OrangeBall3DGame: React.FC = () => {
     directionalLight.position.set(5, 10, 7.5);
     scene.add(directionalLight);
     
-    // Setup camera - Zoomed out and positioned higher to see more of the maze
+    // Setup camera - Zoomed out and positioned higher to see the cityscape
     const camera = new THREE.PerspectiveCamera(
       75, 
       window.innerWidth / window.innerHeight, 
       0.1, 
       1000
     );
-    camera.position.set(0, 8, 12);
+    camera.position.set(0, 15, 25);
     camera.lookAt(0, 1, 0);
     
     // Setup renderer
@@ -115,12 +106,19 @@ const OrangeBall3DGame: React.FC = () => {
     renderer.shadowMap.enabled = true;
     mountRef.current.appendChild(renderer.domElement);
     
-    // Create ground
-    const groundGeometry = new THREE.PlaneGeometry(100, 100);
+    // Create ground - city streets
+    const groundGeometry = new THREE.PlaneGeometry(200, 200);
+    const groundTexture = new THREE.TextureLoader().load(
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+    );
+    groundTexture.wrapS = THREE.RepeatWrapping;
+    groundTexture.wrapT = THREE.RepeatWrapping;
+    groundTexture.repeat.set(50, 50);
+    
     const groundMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0x3D9970,
+      color: 0x333333, // Dark asphalt
       roughness: 0.8, 
-      metalness: 0.2 
+      metalness: 0.2
     });
     const ground = new THREE.Mesh(groundGeometry, groundMaterial);
     ground.rotation.x = -Math.PI / 2;
@@ -131,10 +129,12 @@ const OrangeBall3DGame: React.FC = () => {
     // Create ball
     const ballGeometry = new THREE.SphereGeometry(gameStateRef.current.ball.radius, 32, 32);
     const ballMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0xFF7700,
-      roughness: 0.2,
-      metalness: 0.3
+      color: 0xFF7700, // Orange basketball color
+      roughness: 0.4,
+      metalness: 0.2
     });
+    
+    // Add basketball texture with lines
     const ball = new THREE.Mesh(ballGeometry, ballMaterial);
     ball.position.copy(gameStateRef.current.ball.position);
     ball.castShadow = true;
@@ -154,27 +154,18 @@ const OrangeBall3DGame: React.FC = () => {
     const skybox = new THREE.Mesh(skyGeometry, skyMaterials);
     scene.add(skybox);
     
-    // Add clouds (for decoration)
+    // Add clouds for decoration
     addClouds(scene);
     
-    // Create maze
-    const maze = createMaze(scene);
-    gameStateRef.current.maze = maze;
+    // Create city buildings
+    const buildings = createCityscape(scene);
+    gameStateRef.current.buildings = buildings;
     
-    // Create goal (finish line)
-    const goalGeometry = new THREE.BoxGeometry(2, 2, 2);
-    const goalMaterial = new THREE.MeshStandardMaterial({
-      color: 0xFFD700, // Gold
-      emissive: 0xFFD700,
-      emissiveIntensity: 0.3,
-      roughness: 0.2,
-      metalness: 0.8
-    });
-    const goal = new THREE.Mesh(goalGeometry, goalMaterial);
-    goal.position.copy(gameStateRef.current.goalPosition);
-    goal.castShadow = true;
-    goal.receiveShadow = true;
-    scene.add(goal);
+    // Create dangerous obstacles (nails, spikes)
+    createObstacles(scene);
+    
+    // Create basketball court (goal)
+    createBasketballCourt(scene);
     
     // Store objects in gameState
     gameStateRef.current.scene = scene;
@@ -183,11 +174,11 @@ const OrangeBall3DGame: React.FC = () => {
     
     // Reset game state
     gameStateRef.current.obstacles = [];
-    gameStateRef.current.powerUps = [];
     gameStateRef.current.score = 0;
     gameStateRef.current.ball.position = new THREE.Vector3(0, 1, 0);
     gameStateRef.current.ball.velocity = new THREE.Vector3(0, 0, 0);
     gameStateRef.current.mazeCompleted = false;
+    gameStateRef.current.ball.deflated = false;
     
     // Load high scores
     try {
@@ -200,93 +191,305 @@ const OrangeBall3DGame: React.FC = () => {
     }
   };
   
-  const createMaze = (scene: THREE.Scene): THREE.Mesh[] => {
-    const mazePieces: THREE.Mesh[] = [];
-    const wallMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0x4682B4, // Steel blue
-      roughness: 0.7,
-      metalness: 0.3
-    });
-    
-    // Maze wall height
-    const wallHeight = 3;
-    
-    // Maze layout - 1 represents walls, 0 represents paths
-    const mazeLayout = [
-      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-      [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1],
-      [1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1],
-      [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
-      [1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1],
-      [1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1],
-      [1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1],
-      [1, 1, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
-      [1, 0, 0, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1],
-      [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1],
-      [1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 1, 0, 1],
-      [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
-      [1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1],
-      [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-      [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+  const createCityscape = (scene: THREE.Scene): THREE.Mesh[] => {
+    const buildings: THREE.Mesh[] = [];
+    const buildingColors = [
+      0x555555, // Dark gray
+      0x666666, // Medium gray
+      0x777777, // Light gray
+      0x888888, // Silver
+      0x444444, // Charcoal
     ];
     
-    // Unit size for maze cells
-    const unitSize = 2;
-    
-    // Offset to center the maze
-    const offsetX = -mazeLayout[0].length * unitSize / 2;
-    const offsetZ = -mazeLayout.length * unitSize / 2;
-    
-    // Create walls based on the layout
-    for (let i = 0; i < mazeLayout.length; i++) {
-      for (let j = 0; j < mazeLayout[i].length; j++) {
-        if (mazeLayout[i][j] === 1) {
-          const wallGeometry = new THREE.BoxGeometry(unitSize, wallHeight, unitSize);
-          const wall = new THREE.Mesh(wallGeometry, wallMaterial);
+    // City layout - more random and open compared to maze
+    // Create buildings along streets
+    for (let i = 0; i < 40; i++) {
+      // Random building dimensions
+      const width = 3 + Math.random() * 5;
+      const height = 5 + Math.random() * 20;
+      const depth = 3 + Math.random() * 5;
+      
+      // Random position with some spacing between buildings
+      let x = 0, z = 0;
+      let validPosition = false;
+      
+      // Try to find a valid position that doesn't overlap with other buildings
+      while (!validPosition) {
+        x = (Math.random() - 0.5) * 150;
+        z = (Math.random() - 0.5) * 150;
+        
+        // Skip positions too close to start or basketball court
+        if (Math.abs(x) < 10 && Math.abs(z) < 10) continue;
+        if (Math.abs(x - gameStateRef.current.goalPosition.x) < 15 && 
+            Math.abs(z - gameStateRef.current.goalPosition.z) < 15) continue;
+        
+        validPosition = true;
+        
+        // Check distance from existing buildings
+        for (const building of buildings) {
+          const dx = Math.abs(building.position.x - x);
+          const dz = Math.abs(building.position.z - z);
           
-          // Position the wall
-          wall.position.set(
-            offsetX + j * unitSize + unitSize / 2,
-            wallHeight / 2,
-            offsetZ + i * unitSize + unitSize / 2
-          );
-          
-          wall.castShadow = true;
-          wall.receiveShadow = true;
-          scene.add(wall);
-          mazePieces.push(wall);
+          // If too close, try a new position
+          if (dx < 8 && dz < 8) {
+            validPosition = false;
+            break;
+          }
         }
       }
+      
+      // Create building
+      const buildingGeometry = new THREE.BoxGeometry(width, height, depth);
+      const randomColorIndex = Math.floor(Math.random() * buildingColors.length);
+      const buildingColor = buildingColors[randomColorIndex];
+      
+      const buildingMaterial = new THREE.MeshStandardMaterial({
+        color: buildingColor,
+        roughness: 0.7,
+        metalness: 0.2
+      });
+      
+      const building = new THREE.Mesh(buildingGeometry, buildingMaterial);
+      building.position.set(x, height / 2, z);
+      building.castShadow = true;
+      building.receiveShadow = true;
+      
+      // Add windows
+      addWindowsToBuilding(scene, building, width, height, depth);
+      
+      scene.add(building);
+      buildings.push(building);
     }
     
-    // Create floating platforms that require jumping
-    const platformPositions = [
-      { x: -10, y: 2, z: 5, width: 3, depth: 3 },
-      { x: -5, y: 3, z: 10, width: 2, depth: 2 },
-      { x: 0, y: 4, z: 15, width: 3, depth: 3 },
-      { x: 5, y: 5, z: 20, width: 2, depth: 2 },
-      { x: 10, y: 4, z: 15, width: 3, depth: 3 },
-      { x: 15, y: 3, z: 10, width: 2, depth: 2 },
-      { x: 20, y: 2, z: 5, width: 3, depth: 3 }
-    ];
+    return buildings;
+  };
+  
+  const addWindowsToBuilding = (
+    scene: THREE.Scene, 
+    building: THREE.Mesh, 
+    width: number, 
+    height: number, 
+    depth: number
+  ) => {
+    // Window size and spacing
+    const windowSize = 0.5;
+    const windowSpacingH = 1.2;
+    const windowSpacingV = 1.5;
     
-    const platformMaterial = new THREE.MeshStandardMaterial({
-      color: 0xFF9500,
-      roughness: 0.4,
-      metalness: 0.6
+    // Window material - glowing blue at night
+    const windowMaterial = new THREE.MeshBasicMaterial({
+      color: 0x88CCFF,
+      transparent: true,
+      opacity: 0.8
     });
     
-    for (const pos of platformPositions) {
-      const platformGeometry = new THREE.BoxGeometry(pos.width, 0.5, pos.depth);
-      const platform = new THREE.Mesh(platformGeometry, platformMaterial);
-      platform.position.set(pos.x, pos.y, pos.z);
-      platform.castShadow = true;
-      platform.receiveShadow = true;
-      scene.add(platform);
-      mazePieces.push(platform);
+    // Calculate number of windows based on building dimensions
+    const windowsPerFloor = {
+      x: Math.floor(width / windowSpacingH) - 1,
+      z: Math.floor(depth / windowSpacingH) - 1
+    };
+    
+    const floors = Math.floor(height / windowSpacingV) - 1;
+    
+    // Position of the building
+    const bx = building.position.x;
+    const by = building.position.y;
+    const bz = building.position.z;
+    
+    // Add windows on each face of the building
+    for (let floor = 0; floor < floors; floor++) {
+      const y = -height/2 + windowSpacingV + floor * windowSpacingV;
+      
+      // Windows on X faces (front and back)
+      for (let wx = 0; wx < windowsPerFloor.x; wx++) {
+        const x = -width/2 + windowSpacingH + wx * windowSpacingH;
+        
+        // Front face
+        const windowGeometryFront = new THREE.PlaneGeometry(windowSize, windowSize);
+        const windowFront = new THREE.Mesh(windowGeometryFront, windowMaterial);
+        windowFront.position.set(bx + x, by + y, bz + depth/2 + 0.01);
+        scene.add(windowFront);
+        
+        // Back face
+        const windowGeometryBack = new THREE.PlaneGeometry(windowSize, windowSize);
+        const windowBack = new THREE.Mesh(windowGeometryBack, windowMaterial);
+        windowBack.position.set(bx + x, by + y, bz - depth/2 - 0.01);
+        windowBack.rotation.y = Math.PI;
+        scene.add(windowBack);
+      }
+      
+      // Windows on Z faces (left and right)
+      for (let wz = 0; wz < windowsPerFloor.z; wz++) {
+        const z = -depth/2 + windowSpacingH + wz * windowSpacingH;
+        
+        // Right face
+        const windowGeometryRight = new THREE.PlaneGeometry(windowSize, windowSize);
+        const windowRight = new THREE.Mesh(windowGeometryRight, windowMaterial);
+        windowRight.position.set(bx + width/2 + 0.01, by + y, bz + z);
+        windowRight.rotation.y = -Math.PI / 2;
+        scene.add(windowRight);
+        
+        // Left face
+        const windowGeometryLeft = new THREE.PlaneGeometry(windowSize, windowSize);
+        const windowLeft = new THREE.Mesh(windowGeometryLeft, windowMaterial);
+        windowLeft.position.set(bx - width/2 - 0.01, by + y, bz + z);
+        windowLeft.rotation.y = Math.PI / 2;
+        scene.add(windowLeft);
+      }
+    }
+  };
+  
+  const createObstacles = (scene: THREE.Scene) => {
+    const obstacles = gameStateRef.current.obstacles;
+    
+    // Create nail/spike obstacles that will deflate the ball
+    for (let i = 0; i < 30; i++) {
+      // Find a valid position away from start and goal
+      let x = 0, z = 0;
+      let validPosition = false;
+      
+      while (!validPosition) {
+        x = (Math.random() - 0.5) * 140;
+        z = (Math.random() - 0.5) * 140;
+        
+        // Avoid obstacles near the start
+        if (Math.abs(x) < 10 && Math.abs(z) < 10) continue;
+        
+        // Avoid obstacles near the basketball court (goal)
+        if (Math.abs(x - gameStateRef.current.goalPosition.x) < 20 && 
+            Math.abs(z - gameStateRef.current.goalPosition.z) < 20) continue;
+        
+        validPosition = true;
+        
+        // Check distance from buildings
+        for (const building of gameStateRef.current.buildings) {
+          const dx = Math.abs(building.position.x - x);
+          const dz = Math.abs(building.position.z - z);
+          const buildingWidth = (building.geometry as THREE.BoxGeometry).parameters.width;
+          const buildingDepth = (building.geometry as THREE.BoxGeometry).parameters.depth;
+          
+          // If inside or too close to a building, try a new position
+          if (dx < buildingWidth/2 + 2 && dz < buildingDepth/2 + 2) {
+            validPosition = false;
+            break;
+          }
+        }
+      }
+      
+      // Create nail/spike - cone shape pointing up
+      const nailGeometry = new THREE.ConeGeometry(0.3, 1, 8);
+      const nailMaterial = new THREE.MeshStandardMaterial({
+        color: 0xAAAAAA, // Steel gray
+        roughness: 0.3,
+        metalness: 0.8
+      });
+      
+      const nail = new THREE.Mesh(nailGeometry, nailMaterial);
+      nail.position.set(x, 0.5, z); // Position slightly above ground
+      nail.rotation.x = Math.PI; // Point upward
+      nail.castShadow = true;
+      
+      scene.add(nail);
+      
+      // Add to obstacles array
+      obstacles.push({
+        mesh: nail,
+        type: 'nail',
+        dangerous: true
+      });
+    }
+  };
+  
+  const createBasketballCourt = (scene: THREE.Scene) => {
+    const { goalPosition } = gameStateRef.current;
+    
+    // Court floor - orange/brown hardwood
+    const courtGeometry = new THREE.PlaneGeometry(15, 15);
+    const courtMaterial = new THREE.MeshStandardMaterial({
+      color: 0xCD853F, // Basketball court color
+      roughness: 0.8,
+      metalness: 0.1
+    });
+    
+    const court = new THREE.Mesh(courtGeometry, courtMaterial);
+    court.rotation.x = -Math.PI / 2;
+    court.position.set(goalPosition.x, 0.01, goalPosition.z); // Slightly above ground
+    court.receiveShadow = true;
+    scene.add(court);
+    
+    // Court markings - white lines
+    const lineGeometry = new THREE.PlaneGeometry(14, 0.1);
+    const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFFFF });
+    
+    // Outer boundary lines
+    for (let i = 0; i < 4; i++) {
+      const line = new THREE.Mesh(i % 2 === 0 ? lineGeometry : new THREE.PlaneGeometry(0.1, 14));
+      line.rotation.x = -Math.PI / 2;
+      
+      switch(i) {
+        case 0: // Top
+          line.position.set(goalPosition.x, 0.02, goalPosition.z - 7);
+          break;
+        case 1: // Right
+          line.position.set(goalPosition.x + 7, 0.02, goalPosition.z);
+          break;
+        case 2: // Bottom
+          line.position.set(goalPosition.x, 0.02, goalPosition.z + 7);
+          break;
+        case 3: // Left
+          line.position.set(goalPosition.x - 7, 0.02, goalPosition.z);
+          break;
+      }
+      
+      scene.add(line);
     }
     
-    return mazePieces;
+    // Basketball hoop and backboard
+    const backboardGeometry = new THREE.BoxGeometry(4, 3, 0.2);
+    const backboardMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0xFFFFFF,
+      roughness: 0.9,
+      metalness: 0.1
+    });
+    
+    const backboard = new THREE.Mesh(backboardGeometry, backboardMaterial);
+    backboard.position.set(goalPosition.x, 5, goalPosition.z - 7);
+    backboard.castShadow = true;
+    scene.add(backboard);
+    
+    // Red target box on backboard
+    const targetGeometry = new THREE.BoxGeometry(1, 0.8, 0.21);
+    const targetMaterial = new THREE.MeshStandardMaterial({ color: 0xFF0000 });
+    const target = new THREE.Mesh(targetGeometry, targetMaterial);
+    target.position.set(goalPosition.x, 5, goalPosition.z - 7.05);
+    scene.add(target);
+    
+    // Hoop
+    const hoopGeometry = new THREE.TorusGeometry(0.7, 0.05, 16, 32);
+    const hoopMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0xFF4500,
+      metalness: 0.8,
+      roughness: 0.3
+    });
+    
+    const hoop = new THREE.Mesh(hoopGeometry, hoopMaterial);
+    hoop.position.set(goalPosition.x, 3.5, goalPosition.z - 5.8);
+    hoop.rotation.x = Math.PI / 2;
+    hoop.castShadow = true;
+    scene.add(hoop);
+    
+    // Pole
+    const poleGeometry = new THREE.CylinderGeometry(0.1, 0.1, 5, 8);
+    const poleMaterial = new THREE.MeshStandardMaterial({
+      color: 0x888888,
+      metalness: 0.8,
+      roughness: 0.2
+    });
+    
+    const pole = new THREE.Mesh(poleGeometry, poleMaterial);
+    pole.position.set(goalPosition.x, 2.5, goalPosition.z - 7);
+    pole.castShadow = true;
+    scene.add(pole);
   };
   
   const addClouds = (scene: THREE.Scene) => {
@@ -329,8 +532,20 @@ const OrangeBall3DGame: React.FC = () => {
     }
   };
 
-  const jump = () => {
+  const bounce = () => {
     const { ball } = gameStateRef.current;
+    
+    // If ball is deflated, don't allow bouncing
+    if (ball.deflated) {
+      toast({
+        title: "Ball is deflated!",
+        description: "Find a new ball to continue",
+        variant: "destructive",
+        duration: 2000,
+      });
+      return;
+    }
+    
     const currentTime = Date.now();
     
     if (ball.onGround) {
@@ -339,6 +554,9 @@ const OrangeBall3DGame: React.FC = () => {
       
       ball.velocity.y = ball.jumpForce;
       ball.onGround = false;
+      
+      // Play bounce sound effect
+      playBounceSound(1);
     } else {
       const timeSinceLastJump = currentTime - ball.lastJumpTime;
       
@@ -349,10 +567,13 @@ const OrangeBall3DGame: React.FC = () => {
         const powerMultiplier = 1 + (ball.consecutiveJumps * 0.2);
         ball.velocity.y = ball.jumpForce * powerMultiplier;
         
+        // Play higher-pitched bounce sound for power bounces
+        playBounceSound(ball.consecutiveJumps);
+        
         const powerLevel = ball.consecutiveJumps;
         if (powerLevel >= 2) {
           toast({
-            title: `Power Jump Level ${powerLevel}!`,
+            title: `Power Bounce Level ${powerLevel}!`,
             description: "Reaching higher altitudes",
             duration: 1000,
           });
@@ -360,25 +581,65 @@ const OrangeBall3DGame: React.FC = () => {
       }
     }
   };
+  
+  const playBounceSound = (level: number) => {
+    // Simple simulation of a bounce sound using Web Audio API
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 150 + (level * 30); // Higher pitch for power bounces
+      
+      gainNode.gain.value = 0.3;
+      gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      
+      oscillator.start();
+      oscillator.stop(audioCtx.currentTime + 0.3);
+    } catch (e) {
+      // Fallback if Web Audio API is not available
+      console.log("Audio not supported");
+    }
+  };
 
   const moveLeft = () => {
-    gameStateRef.current.ball.velocity.x = -0.15;
+    if (!gameStateRef.current.ball.deflated) {
+      gameStateRef.current.ball.velocity.x = -0.15;
+    } else {
+      gameStateRef.current.ball.velocity.x = -0.05; // Slower when deflated
+    }
   };
 
   const moveRight = () => {
-    gameStateRef.current.ball.velocity.x = 0.15;
+    if (!gameStateRef.current.ball.deflated) {
+      gameStateRef.current.ball.velocity.x = 0.15;
+    } else {
+      gameStateRef.current.ball.velocity.x = 0.05; // Slower when deflated
+    }
     
-    // Increase score when moving right
+    // Increase score when moving
     gameStateRef.current.score++;
     setScore(Math.floor(gameStateRef.current.score/10));
   };
   
   const moveForward = () => {
-    gameStateRef.current.ball.velocity.z = -0.15;
+    if (!gameStateRef.current.ball.deflated) {
+      gameStateRef.current.ball.velocity.z = -0.15;
+    } else {
+      gameStateRef.current.ball.velocity.z = -0.05; // Slower when deflated
+    }
   };
   
   const moveBackward = () => {
-    gameStateRef.current.ball.velocity.z = 0.15;
+    if (!gameStateRef.current.ball.deflated) {
+      gameStateRef.current.ball.velocity.z = 0.15;
+    } else {
+      gameStateRef.current.ball.velocity.z = 0.05; // Slower when deflated
+    }
   };
 
   const stopHorizontalMovement = () => {
@@ -397,12 +658,10 @@ const OrangeBall3DGame: React.FC = () => {
   };
 
   const update = () => {
-    const gameState = gameStateRef.current;
-    
     updateBall();
     updateCamera();
     checkCollisions();
-    checkGoalReached();
+    checkBasketballCourtReached();
   };
   
   const updateCamera = () => {
@@ -411,7 +670,7 @@ const OrangeBall3DGame: React.FC = () => {
     if (!camera) return;
     
     // Make camera follow the ball at a distance
-    const cameraOffset = new THREE.Vector3(0, 6, 10);
+    const cameraOffset = new THREE.Vector3(0, 8, 15);
     camera.position.x = ball.position.x + cameraOffset.x;
     camera.position.y = ball.position.y + cameraOffset.y;
     camera.position.z = ball.position.z + cameraOffset.z;
@@ -451,20 +710,32 @@ const OrangeBall3DGame: React.FC = () => {
     if (ballMesh) {
       ballMesh.position.copy(ball.position);
       
-      // Check if ball size changed
-      if (Math.abs(ball.radius - (ballMesh.geometry as THREE.SphereGeometry).parameters.radius) > 0.01) {
+      // Check if ball size or state changed (deflated)
+      if (Math.abs(ball.radius - (ballMesh.geometry as THREE.SphereGeometry).parameters.radius) > 0.01 || 
+          (ball.deflated && ballMesh.material instanceof THREE.MeshStandardMaterial && 
+           ballMesh.material.color.getHex() === 0xFF7700)) {
+        
         scene.remove(ballMesh);
         
+        // Create new ball with updated appearance
         const newBallGeometry = new THREE.SphereGeometry(ball.radius, 32, 32);
         const newBallMaterial = new THREE.MeshStandardMaterial({ 
-          color: 0xFF7700,
-          roughness: 0.2,
-          metalness: 0.3
+          color: ball.deflated ? 0xBB5500 : 0xFF7700, // Darker when deflated
+          roughness: ball.deflated ? 0.9 : 0.4,
+          metalness: ball.deflated ? 0.1 : 0.2
         });
+        
         const newBall = new THREE.Mesh(newBallGeometry, newBallMaterial);
         newBall.position.copy(ball.position);
         newBall.castShadow = true;
         newBall.receiveShadow = true;
+        
+        // Add flat parts to deflated ball
+        if (ball.deflated) {
+          // Make the ball look slightly flattened
+          newBall.scale.y = 0.6;
+        }
+        
         scene.add(newBall);
       }
     }
@@ -476,21 +747,20 @@ const OrangeBall3DGame: React.FC = () => {
   };
 
   const checkCollisions = () => {
-    const { ball, maze, scene } = gameStateRef.current;
+    const { ball, buildings, obstacles, scene } = gameStateRef.current;
     
     if (!scene) return;
     
-    // Check maze wall collisions with simple distance check
-    for (const wall of maze) {
-      const wallBoundingBox = new THREE.Box3().setFromObject(wall);
+    // Check building collisions
+    for (const building of buildings) {
+      const buildingBoundingBox = new THREE.Box3().setFromObject(building);
       const ballPosition = new THREE.Vector3(ball.position.x, ball.position.y, ball.position.z);
       
-      // Check if ball is colliding with wall
-      if (isColliding(ballPosition, ball.radius, wallBoundingBox)) {
+      // Check if ball is colliding with building
+      if (isColliding(ballPosition, ball.radius, buildingBoundingBox)) {
         // Handle collision - move the ball back and stop velocity
-        // Calculate penetration vector
         const closestPoint = new THREE.Vector3();
-        wallBoundingBox.clampPoint(ballPosition, closestPoint);
+        buildingBoundingBox.clampPoint(ballPosition, closestPoint);
         
         const penetrationVector = new THREE.Vector3().subVectors(ballPosition, closestPoint);
         const penetrationDepth = ball.radius - penetrationVector.length();
@@ -499,14 +769,14 @@ const OrangeBall3DGame: React.FC = () => {
           // Normalize the penetration vector
           penetrationVector.normalize();
           
-          // Move the ball out of the wall
+          // Move the ball out of the building
           ball.position.x += penetrationVector.x * penetrationDepth;
           ball.position.z += penetrationVector.z * penetrationDepth;
           
-          // Check if it's a vertical collision (platform)
+          // Vertical collision
           if (Math.abs(penetrationVector.y) > 0.7) {
             if (penetrationVector.y > 0) {
-              // Ball is on top of platform
+              // Ball is on top of building
               ball.velocity.y = 0;
               ball.onGround = true;
             } else {
@@ -514,13 +784,38 @@ const OrangeBall3DGame: React.FC = () => {
               ball.velocity.y = -0.01;
             }
           } else {
-            // Horizontal collision - stop horizontal movement in collision direction
+            // Horizontal collision - bounce slightly off buildings
             if (Math.abs(penetrationVector.x) > Math.abs(penetrationVector.z)) {
-              ball.velocity.x = 0;
+              ball.velocity.x = -ball.velocity.x * 0.4;
             } else {
-              ball.velocity.z = 0;
+              ball.velocity.z = -ball.velocity.z * 0.4;
             }
           }
+        }
+      }
+    }
+    
+    // Check dangerous obstacle collisions (nails)
+    for (const obstacle of obstacles) {
+      if (obstacle.dangerous) {
+        const obstacleBoundingBox = new THREE.Box3().setFromObject(obstacle.mesh);
+        const ballPosition = new THREE.Vector3(ball.position.x, ball.position.y, ball.position.z);
+        
+        // Check if ball is colliding with the obstacle
+        if (isColliding(ballPosition, ball.radius, obstacleBoundingBox) && !ball.deflated) {
+          // Ball hits nail - deflate the ball
+          ball.deflated = true;
+          
+          // Reduce the ball size slightly when deflated
+          ball.radius = ball.normalRadius * 0.8;
+          
+          // Show deflated message
+          toast({
+            title: "Ouch! Ball deflated!",
+            description: "Your movement is now slower. Try to reach the basketball court!",
+            variant: "destructive",
+            duration: 3000,
+          });
         }
       }
     }
@@ -542,33 +837,38 @@ const OrangeBall3DGame: React.FC = () => {
     return distance < ballRadius;
   };
   
-  const checkGoalReached = () => {
+  const checkBasketballCourtReached = () => {
     const { ball, goalPosition, mazeCompleted } = gameStateRef.current;
     
     if (mazeCompleted) return;
     
-    // Check if ball reached the goal
+    // Distance to basketball court center
     const distance = new THREE.Vector3().subVectors(ball.position, goalPosition).length();
     
-    if (distance < ball.radius + 1.5) {
+    // If the ball is on the basketball court
+    if (distance < 7) { // Court radius is about 7.5 units
       // Player reached the goal
       gameStateRef.current.mazeCompleted = true;
       setMazeCompleted(true);
       
       // Add bonus score
-      gameStateRef.current.score += 500;
+      const bonusPoints = ball.deflated ? 250 : 500; // Half points if deflated
+      gameStateRef.current.score += bonusPoints;
       setScore(Math.floor(gameStateRef.current.score/10));
       
       toast({
-        title: "Maze Completed!",
-        description: "You've reached the goal! +500 points",
+        title: "Basketball Court Reached!",
+        description: ball.deflated 
+          ? `You made it even with a deflated ball! +${bonusPoints} points` 
+          : `Perfect! You made it with an intact ball! +${bonusPoints} points`,
         variant: "default",
+        duration: 3000,
       });
       
       // End game after a short delay to show celebration
       setTimeout(() => {
         endGame();
-      }, 2000);
+      }, 3000);
     }
   };
 
@@ -594,7 +894,7 @@ const OrangeBall3DGame: React.FC = () => {
     setFinalScore(finalScore);
     
     toast({
-      title: gameState.mazeCompleted ? "Maze Completed!" : "Game Over!",
+      title: gameState.mazeCompleted ? "City Challenge Completed!" : "Game Over!",
       description: `Your score: ${finalScore}`,
       variant: gameState.mazeCompleted ? "default" : "destructive",
     });
@@ -652,12 +952,9 @@ const OrangeBall3DGame: React.FC = () => {
     
     // Reset game state
     gameStateRef.current.obstacles = [];
-    gameStateRef.current.powerUps = [];
     gameStateRef.current.score = 0;
     gameStateRef.current.gameSpeed = 0.1;
     gameStateRef.current.gameOver = false;
-    gameStateRef.current.lastObstacleTime = 0;
-    gameStateRef.current.lastPowerUpTime = 0;
     gameStateRef.current.ball.radius = 0.5;
     gameStateRef.current.ball.normalRadius = 0.5;
     gameStateRef.current.ball.position = new THREE.Vector3(0, 1, 0);
@@ -665,6 +962,7 @@ const OrangeBall3DGame: React.FC = () => {
     gameStateRef.current.ball.consecutiveJumps = 0;
     gameStateRef.current.ball.lastJumpTime = 0;
     gameStateRef.current.ball.onGround = true;
+    gameStateRef.current.ball.deflated = false;
     gameStateRef.current.mazeCompleted = false;
     
     setGameOver(false);
@@ -673,8 +971,9 @@ const OrangeBall3DGame: React.FC = () => {
     setMazeCompleted(false);
     
     toast({
-      title: "Game Started!",
-      description: "Space/Up to jump, tap multiple times for higher jumps. Arrow keys to move in all directions.",
+      title: "City Basketball Challenge Started!",
+      description: "Space to bounce (tap multiple times for higher bounces). Arrow keys to move. Avoid nails!",
+      duration: 5000,
     });
     
     gameLoop();
@@ -685,7 +984,7 @@ const OrangeBall3DGame: React.FC = () => {
     
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.code === 'Space' || e.key === ' ' || e.key === 'ArrowUp') && !gameStateRef.current.jumpPressed) {
-        jump();
+        bounce();
         gameStateRef.current.jumpPressed = true;
       }
       
@@ -699,7 +998,7 @@ const OrangeBall3DGame: React.FC = () => {
         moveRight();
       }
       
-      // Add forward/backward movement with W/S or Up/Down keys
+      // Forward/backward movement with W/S or Up/Down keys
       if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
         moveBackward();
       }
@@ -784,7 +1083,7 @@ const OrangeBall3DGame: React.FC = () => {
       {gameOver && (
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center bg-white/95 p-5 rounded-lg border-2 border-[#FF7700] min-w-[300px] z-10 shadow-xl">
           <h1 className="text-2xl font-bold mb-2 text-[#FF7700]">
-            {mazeCompleted ? "Maze Completed!" : "Game Over!"}
+            {mazeCompleted ? "City Challenge Completed!" : "Game Over!"}
           </h1>
           
           <HighScoreDisplay
@@ -806,7 +1105,7 @@ const OrangeBall3DGame: React.FC = () => {
       )}
       
       <div className="absolute bottom-2 left-5 text-white text-sm bg-black/30 px-3 py-1 rounded-full">
-        ↑/SPACE: tap multiple times for higher jumps, Arrow keys/WAS
+        SPACE: tap multiple times to bounce higher, Arrow keys: move, Avoid nails!
       </div>
     </div>
   );
