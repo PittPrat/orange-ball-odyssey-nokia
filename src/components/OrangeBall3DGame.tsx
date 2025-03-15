@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { toast } from '@/components/ui/use-toast';
 import HighScoreDisplay from './game/HighScoreDisplay';
+import GameBanner from './game/GameBanner';
 
 interface GameState {
   ball: {
@@ -108,13 +109,6 @@ const OrangeBall3DGame: React.FC = () => {
     
     // Create ground - city streets
     const groundGeometry = new THREE.PlaneGeometry(200, 200);
-    const groundTexture = new THREE.TextureLoader().load(
-      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
-    );
-    groundTexture.wrapS = THREE.RepeatWrapping;
-    groundTexture.wrapT = THREE.RepeatWrapping;
-    groundTexture.repeat.set(50, 50);
-    
     const groundMaterial = new THREE.MeshStandardMaterial({ 
       color: 0x333333, // Dark asphalt
       roughness: 0.8, 
@@ -126,15 +120,19 @@ const OrangeBall3DGame: React.FC = () => {
     ground.receiveShadow = true;
     scene.add(ground);
     
-    // Create ball
+    // Create roads
+    createRoads(scene);
+    
+    // Create ball - make it look like a basketball
     const ballGeometry = new THREE.SphereGeometry(gameStateRef.current.ball.radius, 32, 32);
+    const ballTexture = createBasketballTexture();
     const ballMaterial = new THREE.MeshStandardMaterial({ 
       color: 0xFF7700, // Orange basketball color
-      roughness: 0.4,
-      metalness: 0.2
+      roughness: 0.6,
+      metalness: 0.1,
+      map: ballTexture
     });
     
-    // Add basketball texture with lines
     const ball = new THREE.Mesh(ballGeometry, ballMaterial);
     ball.position.copy(gameStateRef.current.ball.position);
     ball.castShadow = true;
@@ -163,6 +161,12 @@ const OrangeBall3DGame: React.FC = () => {
     
     // Create dangerous obstacles (nails, spikes)
     createObstacles(scene);
+
+    // Add trees to the city
+    addTrees(scene);
+
+    // Add people walking around
+    addPeople(scene);
     
     // Create basketball court (goal)
     createBasketballCourt(scene);
@@ -188,6 +192,108 @@ const OrangeBall3DGame: React.FC = () => {
       }
     } catch (e) {
       console.log("Could not load high scores:", e);
+    }
+  };
+
+  const createBasketballTexture = (): THREE.Texture => {
+    // Create a canvas to draw the basketball texture
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const context = canvas.getContext('2d');
+    
+    if (context) {
+      // Fill background with orange
+      context.fillStyle = '#FF7700';
+      context.fillRect(0, 0, 512, 512);
+      
+      // Draw basketball lines
+      context.strokeStyle = '#000000';
+      context.lineWidth = 5;
+      
+      // Horizontal center line
+      context.beginPath();
+      context.moveTo(0, 256);
+      context.lineTo(512, 256);
+      context.stroke();
+      
+      // Vertical center line
+      context.beginPath();
+      context.moveTo(256, 0);
+      context.lineTo(256, 512);
+      context.stroke();
+      
+      // Draw curved lines for the basketball
+      context.beginPath();
+      context.arc(256, 256, 150, 0, Math.PI, false);
+      context.stroke();
+      
+      context.beginPath();
+      context.arc(256, 256, 150, Math.PI, Math.PI * 2, false);
+      context.stroke();
+
+      // Draw more realistic basketball texture
+      context.beginPath();
+      context.arc(256, 256, 200, Math.PI / 4, Math.PI + Math.PI / 4, false);
+      context.stroke();
+
+      context.beginPath();
+      context.arc(256, 256, 200, Math.PI + Math.PI / 4, Math.PI * 2 + Math.PI / 4, false);
+      context.stroke();
+    }
+    
+    const texture = new THREE.CanvasTexture(canvas);
+    return texture;
+  };
+  
+  const createRoads = (scene: THREE.Scene) => {
+    // Create horizontal and vertical roads through the city
+    const roadMaterial = new THREE.MeshStandardMaterial({
+      color: 0x444444, // Darker asphalt for roads
+      roughness: 0.7,
+      metalness: 0.3
+    });
+    
+    // Horizontal roads
+    for (let i = -80; i <= 80; i += 40) {
+      const roadGeometry = new THREE.PlaneGeometry(180, 10);
+      const road = new THREE.Mesh(roadGeometry, roadMaterial);
+      road.rotation.x = -Math.PI / 2;
+      road.position.set(0, 0.01, i); // Slightly above ground
+      road.receiveShadow = true;
+      scene.add(road);
+      
+      // Add white road lines
+      const lineGeometry = new THREE.PlaneGeometry(180, 0.5);
+      const lineMaterial = new THREE.MeshBasicMaterial({
+        color: 0xFFFFFF
+      });
+      
+      const line = new THREE.Mesh(lineGeometry, lineMaterial);
+      line.rotation.x = -Math.PI / 2;
+      line.position.set(0, 0.02, i); // Slightly above road
+      scene.add(line);
+    }
+    
+    // Vertical roads
+    for (let i = -80; i <= 80; i += 40) {
+      const roadGeometry = new THREE.PlaneGeometry(10, 180);
+      const road = new THREE.Mesh(roadGeometry, roadMaterial);
+      road.rotation.x = -Math.PI / 2;
+      road.position.set(i, 0.01, 0); // Slightly above ground
+      road.receiveShadow = true;
+      scene.add(road);
+      
+      // Add white road lines
+      const lineGeometry = new THREE.PlaneGeometry(0.5, 180);
+      const lineMaterial = new THREE.MeshBasicMaterial({
+        color: 0xFFFFFF
+      });
+      
+      const line = new THREE.Mesh(lineGeometry, lineMaterial);
+      line.rotation.x = -Math.PI / 2;
+      line.position.set(i, 0.02, 0); // Slightly above road
+      scene.add(line);
     }
   };
   
@@ -339,6 +445,155 @@ const OrangeBall3DGame: React.FC = () => {
     }
   };
   
+  const addTrees = (scene: THREE.Scene) => {
+    // Add trees around the city for decoration
+    for (let i = 0; i < 30; i++) {
+      // Find a valid position away from buildings, start, and goal
+      let x = 0, z = 0;
+      let validPosition = false;
+      
+      while (!validPosition) {
+        x = (Math.random() - 0.5) * 160;
+        z = (Math.random() - 0.5) * 160;
+        
+        // Avoid trees near the start
+        if (Math.abs(x) < 10 && Math.abs(z) < 10) continue;
+        
+        // Avoid trees near the basketball court (goal)
+        if (Math.abs(x - gameStateRef.current.goalPosition.x) < 20 && 
+            Math.abs(z - gameStateRef.current.goalPosition.z) < 20) continue;
+        
+        validPosition = true;
+        
+        // Check distance from buildings
+        for (const building of gameStateRef.current.buildings) {
+          const dx = Math.abs(building.position.x - x);
+          const dz = Math.abs(building.position.z - z);
+          const buildingWidth = (building.geometry as THREE.BoxGeometry).parameters.width;
+          const buildingDepth = (building.geometry as THREE.BoxGeometry).parameters.depth;
+          
+          // If inside or too close to a building, try a new position
+          if (dx < buildingWidth/2 + 3 && dz < buildingDepth/2 + 3) {
+            validPosition = false;
+            break;
+          }
+        }
+      }
+      
+      // Create tree trunk
+      const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.4, 2, 8);
+      const trunkMaterial = new THREE.MeshStandardMaterial({
+        color: 0x8B4513, // Brown
+        roughness: 0.8,
+        metalness: 0.2
+      });
+      const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+      trunk.position.set(x, 1, z);
+      trunk.castShadow = true;
+      trunk.receiveShadow = true;
+      scene.add(trunk);
+      
+      // Create tree leaves/foliage (conical or spherical shape)
+      const treeType = Math.random() > 0.5 ? 'conical' : 'spherical';
+      
+      if (treeType === 'conical') {
+        // Pine tree
+        const leavesGeometry = new THREE.ConeGeometry(1.5, 4, 8);
+        const leavesMaterial = new THREE.MeshStandardMaterial({
+          color: 0x2E8B57, // Dark green
+          roughness: 0.8,
+          metalness: 0.1
+        });
+        const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
+        leaves.position.set(x, 4, z);
+        leaves.castShadow = true;
+        leaves.receiveShadow = true;
+        scene.add(leaves);
+      } else {
+        // Deciduous tree
+        const leavesGeometry = new THREE.SphereGeometry(1.5, 8, 8);
+        const leavesMaterial = new THREE.MeshStandardMaterial({
+          color: 0x32CD32, // Light green
+          roughness: 0.8,
+          metalness: 0.1
+        });
+        const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
+        leaves.position.set(x, 3.5, z);
+        leaves.castShadow = true;
+        leaves.receiveShadow = true;
+        scene.add(leaves);
+      }
+      
+      // Add tree to obstacles array as non-dangerous obstacle
+      const obstacleGroup = new THREE.Group();
+      obstacleGroup.position.set(x, 0, z);
+      scene.add(obstacleGroup);
+      
+      gameStateRef.current.obstacles.push({
+        mesh: obstacleGroup,
+        type: 'tree',
+        dangerous: false
+      });
+    }
+  };
+  
+  const addPeople = (scene: THREE.Scene) => {
+    // Add people walking around the city as obstacles
+    for (let i = 0; i < 20; i++) {
+      // Find a valid position on the roads
+      let x = 0, z = 0;
+      
+      // Position people along the roads
+      if (Math.random() > 0.5) {
+        // Horizontal roads
+        x = (Math.random() - 0.5) * 150;
+        z = Math.floor(Math.random() * 5 - 2) * 40 + (Math.random() * 6 - 3);
+      } else {
+        // Vertical roads
+        x = Math.floor(Math.random() * 5 - 2) * 40 + (Math.random() * 6 - 3);
+        z = (Math.random() - 0.5) * 150;
+      }
+      
+      // Create simple person model
+      const personGroup = new THREE.Group();
+      
+      // Body
+      const bodyGeometry = new THREE.CylinderGeometry(0.2, 0.3, 1, 8);
+      const bodyMaterial = new THREE.MeshStandardMaterial({
+        color: Math.random() > 0.5 ? 0x3366CC : 0xCC6633, // Random blue or brown
+        roughness: 0.8,
+        metalness: 0.2
+      });
+      const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+      body.position.y = 0.6;
+      personGroup.add(body);
+      
+      // Head
+      const headGeometry = new THREE.SphereGeometry(0.2, 16, 16);
+      const headMaterial = new THREE.MeshStandardMaterial({
+        color: 0xFFD700, // Tan
+        roughness: 0.8,
+        metalness: 0.1
+      });
+      const head = new THREE.Mesh(headGeometry, headMaterial);
+      head.position.y = 1.3;
+      personGroup.add(head);
+      
+      // Position the person
+      personGroup.position.set(x, 0, z);
+      personGroup.castShadow = true;
+      personGroup.receiveShadow = true;
+      scene.add(personGroup);
+      
+      // Add person to obstacles array as non-dangerous obstacle
+      gameStateRef.current.obstacles.push({
+        mesh: personGroup,
+        type: 'person',
+        dangerous: false
+      });
+    }
+  };
+  
   const createObstacles = (scene: THREE.Scene) => {
     const obstacles = gameStateRef.current.obstacles;
     
@@ -396,6 +651,82 @@ const OrangeBall3DGame: React.FC = () => {
         mesh: nail,
         type: 'nail',
         dangerous: true
+      });
+    }
+    
+    // Add fire hydrants as additional obstacles
+    for (let i = 0; i < 15; i++) {
+      // Find a valid position near sidewalks
+      let x = 0, z = 0;
+      let validPosition = false;
+      
+      while (!validPosition) {
+        // Position near roads but offset a bit
+        if (Math.random() > 0.5) {
+          x = Math.floor(Math.random() * 5 - 2) * 40 + (Math.random() > 0.5 ? 6 : -6);
+          z = (Math.random() - 0.5) * 140;
+        } else {
+          x = (Math.random() - 0.5) * 140;
+          z = Math.floor(Math.random() * 5 - 2) * 40 + (Math.random() > 0.5 ? 6 : -6);
+        }
+        
+        // Avoid obstacles near the start or goal
+        if (Math.abs(x) < 10 && Math.abs(z) < 10) continue;
+        if (Math.abs(x - gameStateRef.current.goalPosition.x) < 20 && 
+            Math.abs(z - gameStateRef.current.goalPosition.z) < 20) continue;
+        
+        validPosition = true;
+      }
+      
+      // Create fire hydrant
+      const hydrantGroup = new THREE.Group();
+      
+      // Main body
+      const bodyGeometry = new THREE.CylinderGeometry(0.3, 0.3, 1, 8);
+      const bodyMaterial = new THREE.MeshStandardMaterial({
+        color: 0xFF0000, // Red
+        roughness: 0.7,
+        metalness: 0.3
+      });
+      const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+      body.position.y = 0.5;
+      hydrantGroup.add(body);
+      
+      // Top cap
+      const capGeometry = new THREE.CylinderGeometry(0.35, 0.35, 0.2, 8);
+      const capMaterial = new THREE.MeshStandardMaterial({
+        color: 0xDDDDDD, // Silver
+        roughness: 0.5,
+        metalness: 0.8
+      });
+      const cap = new THREE.Mesh(capGeometry, capMaterial);
+      cap.position.y = 1.1;
+      hydrantGroup.add(cap);
+      
+      // Side nozzles
+      const nozzleGeometry = new THREE.CylinderGeometry(0.1, 0.1, 0.3, 8);
+      const nozzleMaterial = capMaterial;
+      
+      const nozzle1 = new THREE.Mesh(nozzleGeometry, nozzleMaterial);
+      nozzle1.rotation.z = Math.PI / 2;
+      nozzle1.position.set(0.3, 0.8, 0);
+      hydrantGroup.add(nozzle1);
+      
+      const nozzle2 = new THREE.Mesh(nozzleGeometry, nozzleMaterial);
+      nozzle2.rotation.x = Math.PI / 2;
+      nozzle2.position.set(0, 0.8, 0.3);
+      hydrantGroup.add(nozzle2);
+      
+      // Position the hydrant
+      hydrantGroup.position.set(x, 0, z);
+      hydrantGroup.castShadow = true;
+      scene.add(hydrantGroup);
+      
+      // Add to obstacles array as non-dangerous obstacle
+      obstacles.push({
+        mesh: hydrantGroup,
+        type: 'hydrant',
+        dangerous: false
       });
     }
   };
@@ -796,13 +1127,20 @@ const OrangeBall3DGame: React.FC = () => {
     }
     
     // Check dangerous obstacle collisions (nails)
+    checkObstacleCollisions();
+  };
+  
+  const checkObstacleCollisions = () => {
+    const { ball, obstacles } = gameStateRef.current;
+    
     for (const obstacle of obstacles) {
-      if (obstacle.dangerous) {
-        const obstacleBoundingBox = new THREE.Box3().setFromObject(obstacle.mesh);
-        const ballPosition = new THREE.Vector3(ball.position.x, ball.position.y, ball.position.z);
-        
-        // Check if ball is colliding with the obstacle
-        if (isColliding(ballPosition, ball.radius, obstacleBoundingBox) && !ball.deflated) {
+      const obstacleBoundingBox = new THREE.Box3().setFromObject(obstacle.mesh);
+      const ballPosition = new THREE.Vector3(ball.position.x, ball.position.y, ball.position.z);
+      
+      // Check if ball is colliding with the obstacle
+      if (isColliding(ballPosition, ball.radius, obstacleBoundingBox)) {
+        // If it's a dangerous obstacle like a nail and the ball isn't already deflated
+        if (obstacle.dangerous && !ball.deflated) {
           // Ball hits nail - deflate the ball
           ball.deflated = true;
           
@@ -816,6 +1154,21 @@ const OrangeBall3DGame: React.FC = () => {
             variant: "destructive",
             duration: 3000,
           });
+        } else if (!obstacle.dangerous) {
+          // For non-dangerous obstacles like trees or people, just bounce off them
+          // Find the direction to bounce
+          const closestPoint = new THREE.Vector3();
+          obstacleBoundingBox.clampPoint(ballPosition, closestPoint);
+          
+          const bounceDirection = new THREE.Vector3().subVectors(ballPosition, closestPoint).normalize();
+          
+          // Apply a small bounce
+          ball.position.x += bounceDirection.x * 0.2;
+          ball.position.z += bounceDirection.z * 0.2;
+          
+          // Reverse velocity slightly in that direction
+          ball.velocity.x = bounceDirection.x * 0.1;
+          ball.velocity.z = bounceDirection.z * 0.1;
         }
       }
     }
@@ -905,10 +1258,9 @@ const OrangeBall3DGame: React.FC = () => {
       if (highScores.length === 0) {
         newHighScore = true;
       } else {
-        const sortedScores = [...highScores].sort((a, b) => b.score - a.score);
-        const currentTopScore = sortedScores.length > 0 ? sortedScores[0].score : 0;
+        const sortedScores = [...highScores].sort((a, b) => b.score - a.score).slice(0, 10);
         
-        newHighScore = finalScore > currentTopScore;
+        newHighScore = finalScore > sortedScores[0].score;
       }
     }
     
@@ -1073,6 +1425,9 @@ const OrangeBall3DGame: React.FC = () => {
         {/* THREE.js will render in this container */}
       </div>
       
+      {/* Game banner with goals and controls */}
+      <GameBanner />
+      
       <div className="absolute top-2 right-5 text-right z-10">
         <div className="text-xl font-bold text-white mb-2 bg-black/30 p-2 rounded-lg">Score: {score}</div>
         <div className="text-base text-white whitespace-nowrap overflow-hidden text-ellipsis max-w-[200px] bg-black/30 p-2 rounded-lg">
@@ -1103,10 +1458,6 @@ const OrangeBall3DGame: React.FC = () => {
           </button>
         </div>
       )}
-      
-      <div className="absolute bottom-2 left-5 text-white text-sm bg-black/30 px-3 py-1 rounded-full">
-        SPACE: tap multiple times to bounce higher, Arrow keys: move, Avoid nails!
-      </div>
     </div>
   );
 };
